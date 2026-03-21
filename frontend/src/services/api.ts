@@ -3,6 +3,8 @@ import type {
   CommandPayload,
   DashboardSummaryPayload,
   MlPayload,
+  ScheduleStateResponse,
+  ScheduleToggleResponse,
   TelemetryPayload,
 } from "../types/dashboard";
 import { getMockAiReport, getMockMl, getMockSummary, getMockTelemetry } from "./mockData";
@@ -74,6 +76,37 @@ export const dashboardApi = {
       });
     } catch {
       return getMockAiReport();
+    }
+  },
+  async toggleSchedule(): Promise<ScheduleToggleResponse> {
+    if (FORCE_MOCK) {
+      return {
+        ok: true,
+        scheduleEnabled: false,
+        command: { forceOff: false, afterHoursAlert: false },
+      };
+    }
+    try {
+      // TODO: Node-RED should expose POST /api/schedule-toggle.
+      return await requestJson<ScheduleToggleResponse>("/api/schedule-toggle", {
+        method: "POST",
+        body: JSON.stringify({ source: "frontend-dashboard" }),
+      });
+    } catch {
+      return {
+        ok: true,
+        scheduleEnabled: false,
+        command: { forceOff: false, afterHoursAlert: false },
+      };
+    }
+  },
+  async getScheduleState(): Promise<ScheduleStateResponse> {
+    if (FORCE_MOCK) return { ok: true, scheduleEnabled: true };
+    try {
+      // TODO: Node-RED should expose GET /api/schedule-state.
+      return await requestJson<ScheduleStateResponse>("/api/schedule-state");
+    } catch {
+      return { ok: true, scheduleEnabled: true };
     }
   },
 };

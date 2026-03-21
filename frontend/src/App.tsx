@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AiReportCard } from "./components/dashboard/AiReportCard";
 import { AlertsBanner } from "./components/dashboard/AlertsBanner";
 import { AnalyticsCard } from "./components/dashboard/AnalyticsCard";
@@ -15,11 +15,32 @@ import type { CommandPayload } from "./types/dashboard";
 function App() {
   const { bundle, loading, error, lastUpdated, alerts, refresh } = useDashboardData();
   const [commandNotice, setCommandNotice] = useState<string>("");
+  const [scheduleEnabled, setScheduleEnabled] = useState<boolean | null>(null);
 
   async function handleSendCommand(command: CommandPayload) {
     await dashboardApi.sendCommand(command);
     setCommandNotice(`Command sent: ${JSON.stringify(command)}`);
   }
+
+  async function handleToggleSchedule() {
+    const result = await dashboardApi.toggleSchedule();
+    setScheduleEnabled(result.scheduleEnabled);
+    setCommandNotice(
+      `Schedule ${result.scheduleEnabled ? "enabled" : "disabled"} (forceOff: ${
+        result.command.forceOff
+      }, afterHoursAlert: ${result.command.afterHoursAlert})`,
+    );
+  }
+
+  useEffect(() => {
+    let active = true;
+    dashboardApi.getScheduleState().then((result) => {
+      if (active) setScheduleEnabled(result.scheduleEnabled);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const alertValues = useMemo(() => alerts, [alerts]);
 
@@ -57,7 +78,11 @@ function App() {
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-4">
         <StatusCard summary={bundle.summary} />
         <TemperatureCard telemetry={bundle.telemetry} />
-        <ControlsCard onSendCommand={handleSendCommand} />
+        <ControlsCard
+          onSendCommand={handleSendCommand}
+          onToggleSchedule={handleToggleSchedule}
+          scheduleEnabled={scheduleEnabled}
+        />
         <AnalyticsCard summary={bundle.summary} />
         <TemperatureTrendCard trend={bundle.trend} />
         <MlInsightsCard ml={bundle.ml} />

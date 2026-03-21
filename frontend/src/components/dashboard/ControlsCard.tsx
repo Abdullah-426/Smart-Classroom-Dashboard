@@ -5,6 +5,8 @@ import { Card } from "../ui/Card";
 
 interface ControlsCardProps {
   onSendCommand: (command: CommandPayload) => Promise<void>;
+  onToggleSchedule: () => Promise<void>;
+  scheduleEnabled: boolean | null;
 }
 
 const presets = [
@@ -13,7 +15,7 @@ const presets = [
   { label: "Energy Saver", value: 30 },
 ];
 
-export function ControlsCard({ onSendCommand }: ControlsCardProps) {
+export function ControlsCard({ onSendCommand, onToggleSchedule, scheduleEnabled }: ControlsCardProps) {
   const [presetValue, setPresetValue] = useState("28");
   const [busy, setBusy] = useState(false);
 
@@ -29,7 +31,7 @@ export function ControlsCard({ onSendCommand }: ControlsCardProps) {
         <button
           type="button"
           disabled={busy}
-          onClick={() => send({ mode: "auto" })}
+          onClick={() => send({ mode: "auto", forceOff: false, afterHoursAlert: false })}
           className="w-full rounded-xl bg-sky-500 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-600 disabled:opacity-50"
         >
           AUTO
@@ -38,7 +40,7 @@ export function ControlsCard({ onSendCommand }: ControlsCardProps) {
           <button
             type="button"
             disabled={busy}
-            onClick={() => send({ mode: "manual", light: 1 })}
+            onClick={() => send({ mode: "manual", light: 1, forceOff: false, afterHoursAlert: false })}
             className="rounded-xl border border-slate-300 px-3 py-2 text-xs dark:border-slate-700"
           >
             Light ON
@@ -46,7 +48,7 @@ export function ControlsCard({ onSendCommand }: ControlsCardProps) {
           <button
             type="button"
             disabled={busy}
-            onClick={() => send({ mode: "manual", light: 0 })}
+            onClick={() => send({ mode: "manual", light: 0, forceOff: false, afterHoursAlert: false })}
             className="rounded-xl border border-slate-300 px-3 py-2 text-xs dark:border-slate-700"
           >
             Light OFF
@@ -54,7 +56,7 @@ export function ControlsCard({ onSendCommand }: ControlsCardProps) {
           <button
             type="button"
             disabled={busy}
-            onClick={() => send({ mode: "manual", fan: 1 })}
+            onClick={() => send({ mode: "manual", fan: 1, forceOff: false, afterHoursAlert: false })}
             className="rounded-xl border border-slate-300 px-3 py-2 text-xs dark:border-slate-700"
           >
             Fan ON
@@ -62,7 +64,7 @@ export function ControlsCard({ onSendCommand }: ControlsCardProps) {
           <button
             type="button"
             disabled={busy}
-            onClick={() => send({ mode: "manual", fan: 0 })}
+            onClick={() => send({ mode: "manual", fan: 0, forceOff: false, afterHoursAlert: false })}
             className="rounded-xl border border-slate-300 px-3 py-2 text-xs dark:border-slate-700"
           >
             Fan OFF
@@ -87,11 +89,43 @@ export function ControlsCard({ onSendCommand }: ControlsCardProps) {
           <button
             type="button"
             disabled={busy}
-            onClick={() => send({ mode: "auto", tempThreshold: Number(presetValue) })}
+            onClick={() =>
+              send({
+                mode: "auto",
+                tempThreshold: Number(presetValue),
+                forceOff: false,
+                afterHoursAlert: false,
+              })
+            }
             className="w-full rounded-xl border border-sky-400 px-3 py-2 text-xs font-medium text-sky-600 dark:text-sky-400"
           >
             Apply Preset
           </button>
+        </div>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            await onToggleSchedule();
+            setBusy(false);
+          }}
+          className="w-full rounded-xl border border-violet-400 px-3 py-2 text-xs font-medium text-violet-600 dark:text-violet-400"
+        >
+          {scheduleEnabled === null
+            ? "Schedule: Unknown"
+            : scheduleEnabled
+              ? "Disable Schedule"
+              : "Enable Schedule"}
+        </button>
+        <div
+          className={`rounded-xl border px-3 py-2 text-xs font-medium ${
+            scheduleEnabled
+              ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+              : "border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-700 dark:bg-rose-900/30 dark:text-rose-300"
+          }`}
+        >
+          Schedule checker: {scheduleEnabled === null ? "Unknown" : scheduleEnabled ? "Enabled" : "Disabled"}
         </div>
       </div>
     </Card>

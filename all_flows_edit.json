@@ -1103,7 +1103,7 @@
         "type": "function",
         "z": "51ea9c70bb53699f",
         "name": "Schedule Checker",
-        "func": "// Example college hours: 8:00 AM to 6:00 PM\nlet now = new Date();\nlet hour = now.getHours();\n\nlet inCollegeHours = (hour >= 8 && hour < 18);\n\nif (inCollegeHours) {\n    msg.payload = JSON.stringify({\n        forceOff: false,\n        afterHoursAlert: false\n    });\n} else {\n    msg.payload = JSON.stringify({\n        forceOff: true,\n        afterHoursAlert: true\n    });\n}\n\nreturn msg;",
+        "func": "let scheduleEnabled = flow.get(\"scheduleEnabled\");\nif (scheduleEnabled === undefined) {\n    scheduleEnabled = true;\n    flow.set(\"scheduleEnabled\", true);\n}\n\nif (!scheduleEnabled) {\n    return null;\n}\n\nlet now = new Date();\nlet hour = now.getHours();\n\n// College timing enforcement window: 08:00 to 19:00\nlet inCollegeHours = (hour >= 8 && hour < 19);\n\n// Motion-alert/buzzer window: active outside 09:00 to 18:00\nlet inRegularDayWindow = (hour >= 9 && hour < 18);\n\nmsg.payload = JSON.stringify({\n    forceOff: !inCollegeHours,\n    afterHoursAlert: !inRegularDayWindow\n});\n\nreturn msg;",
         "outputs": 1,
         "timeout": 0,
         "noerr": 0,
@@ -1112,6 +1112,65 @@
         "libs": [],
         "x": 510,
         "y": 1480,
+        "wires": [
+            [
+                "1115c0a1bb20b4ed"
+            ]
+        ]
+    },
+    {
+        "id": "b7ce4c9a3d1f6e2a",
+        "type": "ui-button",
+        "z": "51ea9c70bb53699f",
+        "group": "be06dcde817b07ca",
+        "name": "",
+        "label": "Disable/Enable Schedule",
+        "order": 7,
+        "width": 0,
+        "height": 0,
+        "emulateClick": false,
+        "tooltip": "Toggle schedule checker for testing",
+        "color": "",
+        "bgcolor": "",
+        "className": "",
+        "icon": "",
+        "iconPosition": "left",
+        "payload": "",
+        "payloadType": "str",
+        "topic": "topic",
+        "topicType": "msg",
+        "buttonColor": "",
+        "textColor": "",
+        "iconColor": "",
+        "enableClick": true,
+        "enablePointerdown": false,
+        "pointerdownPayload": "",
+        "pointerdownPayloadType": "str",
+        "enablePointerup": false,
+        "pointerupPayload": "",
+        "pointerupPayloadType": "str",
+        "x": 290,
+        "y": 1560,
+        "wires": [
+            [
+                "a3e5d90c2f7b41d8"
+            ]
+        ]
+    },
+    {
+        "id": "a3e5d90c2f7b41d8",
+        "type": "function",
+        "z": "51ea9c70bb53699f",
+        "name": "Toggle Schedule Checker",
+        "func": "let enabled = flow.get(\"scheduleEnabled\");\nif (enabled === undefined) {\n    enabled = true;\n}\n\nenabled = !enabled;\nflow.set(\"scheduleEnabled\", enabled);\n\n// When disabling schedule, immediately clear overrides for testing.\nif (!enabled) {\n    msg.payload = JSON.stringify({\n        forceOff: false,\n        afterHoursAlert: false\n    });\n    return msg;\n}\n\n// When re-enabling schedule, push current schedule decision immediately.\nlet now = new Date();\nlet hour = now.getHours();\nlet inCollegeHours = (hour >= 8 && hour < 19);\nlet inRegularDayWindow = (hour >= 9 && hour < 18);\n\nmsg.payload = JSON.stringify({\n    forceOff: !inCollegeHours,\n    afterHoursAlert: !inRegularDayWindow\n});\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 560,
+        "y": 1560,
         "wires": [
             [
                 "1115c0a1bb20b4ed"
@@ -1909,6 +1968,137 @@
         "headers": {},
         "x": 860,
         "y": 1860,
+        "wires": []
+    },
+    {
+        "id": "c9e4d1a7b3f56280",
+        "type": "http in",
+        "z": "51ea9c70bb53699f",
+        "name": "POST /api/schedule-toggle",
+        "url": "/api/schedule-toggle",
+        "method": "post",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 180,
+        "y": 1900,
+        "wires": [
+            [
+                "d2f8b4a9c1e67350"
+            ]
+        ]
+    },
+    {
+        "id": "d2f8b4a9c1e67350",
+        "type": "function",
+        "z": "51ea9c70bb53699f",
+        "name": "API Toggle Schedule",
+        "func": "let enabled = flow.get(\"scheduleEnabled\");\nif (enabled === undefined) {\n    enabled = true;\n}\n\nenabled = !enabled;\nflow.set(\"scheduleEnabled\", enabled);\n\nlet command;\nif (!enabled) {\n    command = {\n        forceOff: false,\n        afterHoursAlert: false\n    };\n} else {\n    let now = new Date();\n    let hour = now.getHours();\n    let inCollegeHours = (hour >= 8 && hour < 19);\n    let inRegularDayWindow = (hour >= 9 && hour < 18);\n\n    command = {\n        forceOff: !inCollegeHours,\n        afterHoursAlert: !inRegularDayWindow\n    };\n}\n\nlet mqttMsg = {\n    payload: JSON.stringify(command)\n};\n\nlet responseMsg = {\n    statusCode: 200,\n    payload: {\n        ok: true,\n        scheduleEnabled: enabled,\n        command: command\n    }\n};\n\nreturn [mqttMsg, responseMsg];",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 420,
+        "y": 1900,
+        "wires": [
+            [
+                "1115c0a1bb20b4ed"
+            ],
+            [
+                "f9a6d3e2b7c48105"
+            ]
+        ]
+    },
+    {
+        "id": "f9a6d3e2b7c48105",
+        "type": "json",
+        "z": "51ea9c70bb53699f",
+        "name": "",
+        "property": "payload",
+        "action": "",
+        "pretty": false,
+        "x": 650,
+        "y": 1900,
+        "wires": [
+            [
+                "a7b5c2d9e1f83460"
+            ]
+        ]
+    },
+    {
+        "id": "a7b5c2d9e1f83460",
+        "type": "http response",
+        "z": "51ea9c70bb53699f",
+        "name": "",
+        "statusCode": "",
+        "headers": {},
+        "x": 850,
+        "y": 1900,
+        "wires": []
+    },
+    {
+        "id": "f3b9d2a6c8e14750",
+        "type": "http in",
+        "z": "51ea9c70bb53699f",
+        "name": "GET /api/schedule-state",
+        "url": "/api/schedule-state",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 170,
+        "y": 1940,
+        "wires": [
+            [
+                "c1e7a9d4b2f56380"
+            ]
+        ]
+    },
+    {
+        "id": "c1e7a9d4b2f56380",
+        "type": "function",
+        "z": "51ea9c70bb53699f",
+        "name": "API Get Schedule State",
+        "func": "let enabled = flow.get(\"scheduleEnabled\");\nif (enabled === undefined) {\n    enabled = true;\n    flow.set(\"scheduleEnabled\", true);\n}\n\nmsg.statusCode = 200;\nmsg.payload = {\n    ok: true,\n    scheduleEnabled: enabled\n};\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 420,
+        "y": 1940,
+        "wires": [
+            [
+                "b5d1c8e4a2f96730"
+            ]
+        ]
+    },
+    {
+        "id": "b5d1c8e4a2f96730",
+        "type": "json",
+        "z": "51ea9c70bb53699f",
+        "name": "",
+        "property": "payload",
+        "action": "",
+        "pretty": false,
+        "x": 650,
+        "y": 1940,
+        "wires": [
+            [
+                "d4f2b8a1c9e67350"
+            ]
+        ]
+    },
+    {
+        "id": "d4f2b8a1c9e67350",
+        "type": "http response",
+        "z": "51ea9c70bb53699f",
+        "name": "",
+        "statusCode": "",
+        "headers": {},
+        "x": 850,
+        "y": 1940,
         "wires": []
     },
     {

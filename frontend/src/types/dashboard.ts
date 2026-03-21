@@ -44,6 +44,20 @@ export interface AiReportPayload {
   generatedAt: string;
 }
 
+export interface ScheduleToggleResponse {
+  ok: boolean;
+  scheduleEnabled: boolean;
+  command: {
+    forceOff: boolean;
+    afterHoursAlert: boolean;
+  };
+}
+
+export interface ScheduleStateResponse {
+  ok: boolean;
+  scheduleEnabled: boolean;
+}
+
 export interface TrendPoint {
   time: string;
   temperature: number;
