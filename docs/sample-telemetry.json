@@ -1,0 +1,35 @@
+[
+    {
+        "temperature": 20.5,
+        "motion": false,
+        "occupied": false,
+        "light": 0,
+        "fan": 0,
+        "mode": "auto",
+        "forceOff": false,
+        "afterHoursAlert": false,
+        "tempThreshold": 28
+    },
+    {
+        "temperature": 29.4,
+        "motion": true,
+        "occupied": true,
+        "light": 1,
+        "fan": 0,
+        "mode": "auto",
+        "forceOff": false,
+        "afterHoursAlert": false,
+        "tempThreshold": 28
+    },
+    {
+        "temperature": 39.4,
+        "motion": true,
+        "occupied": true,
+        "light": 0,
+        "fan": 1,
+        "mode": "auto",
+        "forceOff": false,
+        "afterHoursAlert": false,
+        "tempThreshold": 26.5
+    }
+]

@@ -1,0 +1,8 @@
+{
+    "predictedTemp": 39.1,
+    "slopePerMin": 0.18,
+    "confidence": 0.91,
+    "mae": 0.36,
+    "anomaly": false,
+    "assist": false
+}

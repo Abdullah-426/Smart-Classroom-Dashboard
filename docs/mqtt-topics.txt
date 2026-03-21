@@ -1,0 +1,10 @@
+MQTT Topics
+
+Telemetry Topic: smartclass/demo01/telemetry
+Command Topic: smartclass/demo01/command
+Status Topic: smartclass/demo01/status
+
+Suggested notes to add later:
+- Real telemetry payload examples
+- Command payload examples
+- Any retained/state topic details if you add them later
