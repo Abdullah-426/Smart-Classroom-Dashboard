@@ -5,7 +5,7 @@ Returns latest raw telemetry from Wokwi via Node-RED, plus pipeline hints (added
 - `serverTimeMs` — Node-RED `Date.now()` when the response is built
 - `lastWokwiMqttMs` — Node-RED `Date.now()` when **Enrich Telemetry** last ran on an incoming MQTT payload (updated every Wokwi publish)
 
-The dashboard shows a **green** header dot when `serverTimeMs - lastWokwiMqttMs` is within ~12s (Wokwi running and MQTT flowing). Otherwise **red** (or hollow while loading).
+The dashboard uses **hysteresis** on telemetry age for the **header dot** (**≤4s** live, **>7s** dead, hold between). The **temperature chart** uses a **wider Schmitt band** (**≤8s** live, **≥22s** dead, hold between) so brief MQTT jitter or missing timestamps do not insert one-poll gaps; the X-axis uses epoch **`atMs`** (not second-only labels) so Recharts does not break on duplicate `time` strings. **~1s** polling.
 
 ## GET /api/dashboard-summary
 Returns processed dashboard fields such as:

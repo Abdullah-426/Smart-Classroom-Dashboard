@@ -24,8 +24,11 @@ function App() {
     pipelineConnected,
     storageInfo,
     clearPersistedStorage,
+    resetDowntimeTimer,
     alerts,
     refresh,
+    storedOccupancySessionKeys,
+    occupancyCurrentSession,
   } = useDashboardData();
   const [commandNotice, setCommandNotice] = useState<string>("");
 
@@ -95,7 +98,14 @@ function App() {
           onToggleSchedule={handleToggleSchedule}
           scheduleState={scheduleState}
         />
-        <AnalyticsCard summary={bundle.summary} />
+        <AnalyticsCard
+          summary={bundle.summary}
+          downtimeMs={storageInfo?.downtimeDisplayMs ?? 0}
+          onResetDowntime={resetDowntimeTimer}
+          occupancyCurrentSession={occupancyCurrentSession}
+          storedOccupancySessionKeys={storedOccupancySessionKeys}
+          onRefresh={refresh}
+        />
         <TemperatureTrendCard trend={bundle.trend} />
         <MlInsightsCard ml={bundle.ml} />
         <AiReportCard />

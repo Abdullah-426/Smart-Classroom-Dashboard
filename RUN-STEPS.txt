@@ -10,8 +10,9 @@ EVERY SESSION (after PC restart)
   1. Start Docker Desktop — wait until it is fully ready.
   2. Start Node-RED (your usual Docker/container way). Wait until the editor opens.
   3. If you use this repo’s flow file: import all_flows_edit.json once, then Deploy.
-     • POST storage bridge URL must be:  http://host.docker.internal:4050/ingest
-       (Do NOT use 127.0.0.1 if Node-RED runs inside Docker.)
+     • POST storage bridge URL:  http://host.docker.internal:4050/ingest
+     • POST downtime tick URL:     http://host.docker.internal:4050/api/storage/downtime/tick
+       (If Node-RED runs on the host, not Docker, change BOTH to 127.0.0.1.)
   4. In project root:  npm run dev:all
      • Starts storage bridge (port 4050) + Vite dashboard.
   5. Start Wokwi (simulation) so MQTT telemetry is published.
@@ -22,6 +23,7 @@ OPEN THE DASHBOARD
 QUICK HEALTH CHECK
   • Dashboard → Local storage: Bridge = Reachable, “POSTs to /ingest” increases while Wokwi runs.
   • data/telemetry.jsonl grows (gitignored).
+  • Optional full checklist: docs/VERIFICATION.md
 
 IF STORAGE FAILS AFTER RE-IMPORTING FLOWS
   • Fix POST storage bridge URL → host.docker.internal (see step 3).

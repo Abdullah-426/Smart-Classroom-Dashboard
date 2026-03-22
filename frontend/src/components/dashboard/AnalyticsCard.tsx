@@ -1,12 +1,29 @@
-import { BarChart3, ChevronDown } from "lucide-react";
+import { BarChart3, ExternalLink, RotateCcw } from "lucide-react";
 import { useState } from "react";
-import clsx from "clsx";
-import type { DashboardSummaryPayload, OccupancySessionDetail } from "../../types/dashboard";
+import type { CurrentOccupancySession, DashboardSummaryPayload, OccupancySessionDetail } from "../../types/dashboard";
 import { Card } from "../ui/Card";
-import { SessionDetailModal } from "./SessionDetailModal";
+import { OccupancySessionsOverlay } from "./OccupancySessionsOverlay";
 
 interface AnalyticsCardProps {
   summary: DashboardSummaryPayload;
+  /** Total pipeline “off” time (persisted). */
+  downtimeMs: number;
+  onResetDowntime: () => void | Promise<void>;
+  occupancyCurrentSession: CurrentOccupancySession | null;
+  storedOccupancySessionKeys: string[];
+  onRefresh: () => void | Promise<void>;
+}
+
+function formatDowntime(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  const d = Math.floor(s / 86_400);
+  const h = Math.floor((s % 86_400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (d > 0) return `${d}d ${h}h ${m}m`;
+  if (h > 0) return `${h}h ${m}m ${sec}s`;
+  if (m > 0) return `${m}m ${sec}s`;
+  return `${sec}s`;
 }
 
 function metricCard(label: string, value: string) {
@@ -18,66 +35,83 @@ function metricCard(label: string, value: string) {
   );
 }
 
-export function AnalyticsCard({ summary }: AnalyticsCardProps) {
-  const [sessionsOpen, setSessionsOpen] = useState(false);
-  const [detailSession, setDetailSession] = useState<OccupancySessionDetail | null>(null);
+export function AnalyticsCard({
+  summary,
+  downtimeMs,
+  onResetDowntime,
+  occupancyCurrentSession,
+  storedOccupancySessionKeys,
+  onRefresh,
+}: AnalyticsCardProps) {
+  const [sessionsPanelOpen, setSessionsPanelOpen] = useState(false);
+  const [resettingDowntime, setResettingDowntime] = useState(false);
 
-  const sessions = summary.occupancySessionList ?? [];
-
-  function sessionRowLabel(s: OccupancySessionDetail): string {
-    if (s.legacy) return s.durationText || "Legacy session";
-    return `Session ${s.sessionNumber}: ${s.durationText}`;
+  async function handleResetDowntime() {
+    if (!window.confirm("Reset the total pipeline downtime timer to zero?")) return;
+    setResettingDowntime(true);
+    try {
+      await onResetDowntime();
+    } finally {
+      setResettingDowntime(false);
+    }
   }
 
+  const sessions: OccupancySessionDetail[] = summary.occupancySessionList ?? [];
+
   return (
-    <Card title="Analytics" subtitle="Operational classroom insights" icon={<BarChart3 size={18} />}>
+    <Card
+      title="Analytics"
+      subtitle="Operational insights"
+      icon={<BarChart3 size={18} />}
+    >
       <div className="space-y-2">
         {metricCard("Estimated energy saved", summary.estimatedEnergySaved)}
         {metricCard("Occupancy timer", summary.occupancyTimer)}
 
-        <div className="rounded-xl border border-transparent bg-slate-100 transition dark:bg-slate-800">
+        <button
+          type="button"
+          onClick={() => setSessionsPanelOpen(true)}
+          className="flex w-full items-center justify-between gap-2 rounded-xl bg-slate-100 px-3 py-2 text-left text-sm transition hover:bg-slate-200/80 dark:bg-slate-800 dark:hover:bg-slate-700/50"
+        >
+          <div>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Occupancy sessions</p>
+            <p className="mt-1 font-medium">{summary.occupancySessions}</p>
+          </div>
+          <ExternalLink className="h-4 w-4 shrink-0 text-slate-500 dark:text-slate-400" aria-hidden />
+        </button>
+
+        <div className="flex items-stretch gap-2 rounded-xl bg-slate-100 px-3 py-2 dark:bg-slate-800">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs text-slate-500 dark:text-slate-400">Pipeline downtime (total)</p>
+            <p className="mt-1 font-mono text-sm font-medium tabular-nums text-slate-800 dark:text-slate-100">
+              {formatDowntime(downtimeMs)}
+            </p>
+          </div>
           <button
             type="button"
-            onClick={() => setSessionsOpen((o) => !o)}
-            className="flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-sm transition hover:bg-slate-200/80 dark:hover:bg-slate-700/50"
-            aria-expanded={sessionsOpen}
+            title="Reset downtime timer"
+            disabled={resettingDowntime}
+            onClick={() => void handleResetDowntime()}
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
           >
-            <div>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Occupancy sessions</p>
-              <p className="mt-1 font-medium">{summary.occupancySessions}</p>
-            </div>
-            <ChevronDown
-              className={clsx("h-4 w-4 shrink-0 text-slate-500 transition-transform dark:text-slate-400", sessionsOpen && "rotate-180")}
-              aria-hidden
-            />
+            <RotateCcw size={18} aria-hidden />
+            <span className="sr-only">Reset downtime timer</span>
           </button>
-          {sessionsOpen ? (
-            <div className="border-t border-slate-200/80 px-2 pb-2 pt-1 dark:border-slate-600/80">
-              {sessions.length === 0 ? (
-                <p className="px-2 py-2 text-xs text-slate-500 dark:text-slate-400">No completed sessions yet.</p>
-              ) : (
-                <ul className="max-h-44 divide-y divide-slate-200/90 overflow-y-auto rounded-lg dark:divide-slate-600/80">
-                  {sessions.map((s, i) => (
-                    <li key={i}>
-                      <button
-                        type="button"
-                        onClick={() => setDetailSession(s)}
-                        className="w-full px-2 py-2 text-left text-xs text-slate-700 hover:bg-white/80 dark:text-slate-200 dark:hover:bg-slate-700/60"
-                      >
-                        {sessionRowLabel(s)}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          ) : null}
         </div>
 
         {metricCard("High temp warning", summary.highTempWarning)}
       </div>
 
-      {detailSession ? <SessionDetailModal session={detailSession} onClose={() => setDetailSession(null)} /> : null}
+      <OccupancySessionsOverlay
+        open={sessionsPanelOpen}
+        onClose={() => setSessionsPanelOpen(false)}
+        sessions={sessions}
+        currentFromStorage={occupancyCurrentSession}
+        summaryOccupied={summary.occupied}
+        summaryOccupancyTimer={summary.occupancyTimer}
+        storedSessionKeys={storedOccupancySessionKeys}
+        onRefresh={onRefresh}
+      />
     </Card>
   );
 }

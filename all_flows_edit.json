@@ -225,7 +225,7 @@
         "type": "function",
         "z": "51ea9c70bb53699f",
         "name": "Enrich Telemetry",
-        "func": "let d = msg.payload;\n\nlet rawTelemetry = {\n    temperature: d.temperature,\n    motion: !!d.motion,\n    occupied: !!d.occupied,\n    light: Number(d.light || 0),\n    fan: Number(d.fan || 0),\n    mode: d.mode,\n    forceOff: !!d.forceOff,\n    afterHoursAlert: !!d.afterHoursAlert,\n    tempThreshold: Number(d.tempThreshold || 28)\n};\n\nflow.set(\"latestTelemetry\", rawTelemetry);\nflow.set(\"lastWokwiMqttMs\", Date.now());\n\nd.roomStatus = d.occupied ? \"Occupied\" : \"Empty\";\nd.lightStatus = d.light ? \"ON\" : \"OFF\";\nd.fanStatus = d.fan ? \"ON\" : \"OFF\";\nd.modeText = d.mode ? d.mode.toUpperCase() : \"UNKNOWN\";\nlet scheduleCheckerOn = flow.get(\"scheduleEnabled\");\nif (scheduleCheckerOn === undefined) {\n    scheduleCheckerOn = true;\n}\nif (!scheduleCheckerOn) {\n    d.collegeText = \"Schedule checker off (no auto lockout)\";\n} else if (d.forceOff) {\n    d.collegeText = \"Outside scheduled hours (08:00–18:00)\";\n} else {\n    d.collegeText = \"Within scheduled hours (08:00–18:00)\";\n}\n\nif (d.afterHoursAlert && d.motion) {\n    d.alertText = \"ALERT: Motion detected after college hours\";\n} else if (d.afterHoursAlert) {\n    d.alertText = \"After-hours monitoring active\";\n} else if (d.temperature >= 35) {\n    d.alertText = \"WARNING: High temperature emergency\";\n} else {\n    d.alertText = \"Normal\";\n}\n\nlet alertList = d.alertText && d.alertText !== \"Normal\" ? [d.alertText] : [];\n\nflow.set(\"latestDashboardSummary\", {\n    temperature: d.temperature,\n    occupied: !!d.occupied,\n    roomStatus: d.roomStatus,\n    light: Number(d.light || 0),\n    fan: Number(d.fan || 0),\n    mode: d.mode,\n    collegeHours: d.collegeText,\n    alerts: alertList,\n    occupancyTimer: flow.get(\"latestOccupancyTimer\") || \"0 min 0 sec\",\n    occupancySessions: flow.get(\"latestOccupancySessions\") || 0,\n    occupancySessionList: flow.get(\"latestOccupancySessionDetails\") || [],\n    estimatedEnergySaved: flow.get(\"latestEstimatedEnergySaved\") || \"0.00 Wh\",\n    highTempWarning: flow.get(\"latestHighTempWarning\") || \"No critical temperature alert\",\n    tempThreshold: Number(d.tempThreshold || 28),\n    afterHoursAlert: !!d.afterHoursAlert\n});\n\nmsg.payload = d;\nreturn msg;",
+        "func": "let d = msg.payload;\nconst prevLast = flow.get(\"lastWokwiMqttMs\");\nconst nowMs = Date.now();\nconst gapMs = typeof prevLast === \"number\" && prevLast > 0 ? nowMs - prevLast : 0;\nflow.set(\"mqttGapMs\", gapMs);\n\nlet rawTelemetry = {\n    temperature: d.temperature,\n    motion: !!d.motion,\n    occupied: !!d.occupied,\n    light: Number(d.light || 0),\n    fan: Number(d.fan || 0),\n    mode: d.mode,\n    forceOff: !!d.forceOff,\n    afterHoursAlert: !!d.afterHoursAlert,\n    tempThreshold: Number(d.tempThreshold || 28)\n};\n\nflow.set(\"latestTelemetry\", rawTelemetry);\nflow.set(\"lastWokwiMqttMs\", nowMs);\n\nd.roomStatus = d.occupied ? \"Occupied\" : \"Empty\";\nd.lightStatus = d.light ? \"ON\" : \"OFF\";\nd.fanStatus = d.fan ? \"ON\" : \"OFF\";\nd.modeText = d.mode ? d.mode.toUpperCase() : \"UNKNOWN\";\nlet scheduleCheckerOn = flow.get(\"scheduleEnabled\");\nif (scheduleCheckerOn === undefined) {\n    scheduleCheckerOn = true;\n}\nif (!scheduleCheckerOn) {\n    d.collegeText = \"Schedule checker off (no auto lockout)\";\n} else if (d.forceOff) {\n    d.collegeText = \"Outside scheduled hours (08:00–18:00)\";\n} else {\n    d.collegeText = \"Within scheduled hours (08:00–18:00)\";\n}\n\nif (d.afterHoursAlert && d.motion) {\n    d.alertText = \"ALERT: Motion detected after college hours\";\n} else if (d.afterHoursAlert) {\n    d.alertText = \"After-hours monitoring active\";\n} else if (d.temperature >= 35) {\n    d.alertText = \"WARNING: High temperature emergency\";\n} else {\n    d.alertText = \"Normal\";\n}\n\nlet alertList = d.alertText && d.alertText !== \"Normal\" ? [d.alertText] : [];\n\nflow.set(\"latestDashboardSummary\", {\n    temperature: d.temperature,\n    occupied: !!d.occupied,\n    roomStatus: d.roomStatus,\n    light: Number(d.light || 0),\n    fan: Number(d.fan || 0),\n    mode: d.mode,\n    collegeHours: d.collegeText,\n    alerts: alertList,\n    occupancyTimer: flow.get(\"latestOccupancyTimer\") || \"0 min 0 sec\",\n    occupancySessions: flow.get(\"latestOccupancySessions\") || 0,\n    occupancySessionList: flow.get(\"latestOccupancySessionDetails\") || [],\n    estimatedEnergySaved: flow.get(\"latestEstimatedEnergySaved\") || \"0.00 Wh\",\n    highTempWarning: flow.get(\"latestHighTempWarning\") || \"No critical temperature alert\",\n    tempThreshold: Number(d.tempThreshold || 28),\n    afterHoursAlert: !!d.afterHoursAlert\n});\n\nmsg.payload = d;\nreturn msg;",
         "outputs": 1,
         "timeout": 0,
         "noerr": 0,
@@ -259,7 +259,7 @@
         "type": "function",
         "z": "51ea9c70bb53699f",
         "name": "Prepare storage POST",
-        "func": "let d = msg.payload;\nmsg.headers = { \"Content-Type\": \"application/json\" };\nmsg.payload = {\n    receivedAt: Date.now(),\n    temperature: typeof d.temperature === \"number\" ? d.temperature : null,\n    motion: !!d.motion,\n    occupied: !!d.occupied,\n    light: d.light ? 1 : 0,\n    fan: d.fan ? 1 : 0,\n    mode: d.mode || \"auto\",\n    tempThreshold: typeof d.tempThreshold === \"number\" ? d.tempThreshold : 28\n};\nreturn msg;",
+        "func": "let d = msg.payload;\nconst gap = Number(flow.get(\"mqttGapMs\")) || 0;\nconst STORAGE_GAP_OK_MS = 10000;\nconst pipelineLive = gap <= STORAGE_GAP_OK_MS;\nmsg.headers = { \"Content-Type\": \"application/json\" };\nmsg.payload = {\n    receivedAt: Date.now(),\n    temperature: typeof d.temperature === \"number\" ? d.temperature : null,\n    motion: !!d.motion,\n    occupied: !!d.occupied,\n    light: d.light ? 1 : 0,\n    fan: d.fan ? 1 : 0,\n    mode: d.mode || \"auto\",\n    tempThreshold: typeof d.tempThreshold === \"number\" ? d.tempThreshold : 28,\n    pipelineLive\n};\nreturn msg;",
         "outputs": 1,
         "timeout": 0,
         "noerr": 0,
@@ -279,7 +279,7 @@
         "type": "comment",
         "z": "51ea9c70bb53699f",
         "name": "Storage bridge URL",
-        "info": "DEFAULT URL IS FOR DOCKER DESKTOP (Node-RED in a container).\n\nIf Node-RED runs directly on Windows/Mac (no Docker), open POST storage bridge and set URL to:\nhttp://127.0.0.1:4050/ingest\n\nLinux Docker: add --add-host=host.docker.internal:host-gateway (or use your host LAN IP).\n\nEnable debug “storage bridge response” + Deploy to see POST replies in the Debug sidebar.",
+        "info": "DEFAULT URLs assume DOCKER DESKTOP (Node-RED in a container).\n\nPOST storage bridge → http://host.docker.internal:4050/ingest\nPOST downtime tick → http://host.docker.internal:4050/api/storage/downtime/tick\n\nIf Node-RED runs on the host (no Docker), change BOTH http nodes to 127.0.0.1.\n\nLinux Docker: --add-host=host.docker.internal:host-gateway\n\nEnable debug “storage bridge response” + Deploy to see ingest replies.",
         "x": 860,
         "y": 248,
         "wires": []
@@ -322,6 +322,70 @@
         "statusType": "auto",
         "x": 1260,
         "y": 200,
+        "wires": []
+    },
+    {
+        "id": "b9d8c7e6f5a40312",
+        "type": "inject",
+        "z": "51ea9c70bb53699f",
+        "name": "Downtime tick 1s",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "1",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "{}",
+        "payloadType": "json",
+        "x": 130,
+        "y": 280,
+        "wires": [
+            [
+                "a8b7c6d5e4f30201"
+            ]
+        ]
+    },
+    {
+        "id": "a8b7c6d5e4f30201",
+        "type": "function",
+        "z": "51ea9c70bb53699f",
+        "name": "Build downtime tick POST",
+        "func": "const last = flow.get(\"lastWokwiMqttMs\");\nconst now = Date.now();\nlet age = typeof last === \"number\" && last > 0 ? now - last : 999999;\nif (age < 0 && age > -120000) age = 0;\nconst LIVE_MS = 4000;\nconst DEAD_MS = 7000;\nlet prev = flow.get(\"pipelineStableLive\");\nif (typeof prev !== \"boolean\") prev = true;\nlet next;\nif (age > 600000) next = false;\nelse if (age <= LIVE_MS) next = true;\nelse if (age > DEAD_MS) next = false;\nelse next = prev;\nflow.set(\"pipelineStableLive\", next);\nmsg.headers = { \"Content-Type\": \"application/json\" };\nmsg.payload = { isLive: next };\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 360,
+        "y": 280,
+        "wires": [
+            [
+                "f1e2d3c4b5a69788"
+            ]
+        ]
+    },
+    {
+        "id": "f1e2d3c4b5a69788",
+        "type": "http request",
+        "z": "51ea9c70bb53699f",
+        "name": "POST downtime tick",
+        "method": "POST",
+        "ret": "txt",
+        "paytoqs": "ignore",
+        "url": "http://host.docker.internal:4050/api/storage/downtime/tick",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 620,
+        "y": 280,
         "wires": []
     },
     {
@@ -1683,7 +1747,7 @@
         "type": "function",
         "z": "51ea9c70bb53699f",
         "name": "API Get Telemetry",
-        "func": "let base = flow.get(\"latestTelemetry\") || {};\nlet latest = Object.assign({}, base);\nlet now = Date.now();\nlatest.serverTimeMs = now;\nlatest.lastWokwiMqttMs = Number(flow.get(\"lastWokwiMqttMs\")) || 0;\nmsg.payload = latest;\nreturn msg;",
+        "func": "let base = flow.get(\"latestTelemetry\") || {};\nlet latest = Object.assign({}, base);\nlet now = Date.now();\nlatest.serverTimeMs = now;\nconst lm = flow.get(\"lastWokwiMqttMs\");\nif (typeof lm === \"number\" && lm > 0 && lm <= now + 60000) {\n    latest.lastWokwiMqttMs = lm;\n} else {\n    latest.lastWokwiMqttMs = null;\n}\nmsg.payload = latest;\nreturn msg;",
         "outputs": 1,
         "timeout": 0,
         "noerr": 0,

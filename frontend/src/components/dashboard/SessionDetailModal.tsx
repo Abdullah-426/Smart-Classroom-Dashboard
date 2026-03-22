@@ -34,7 +34,7 @@ export function SessionDetailModal({ session, onClose }: SessionDetailModalProps
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 z-[120] flex items-center justify-center p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="session-detail-title"
@@ -71,6 +71,10 @@ export function SessionDetailModal({ session, onClose }: SessionDetailModalProps
           <div>
             <dt className="text-xs font-medium text-slate-500 dark:text-slate-400">Session ended</dt>
             <dd className="mt-0.5 text-slate-800 dark:text-slate-200">{formatIso(session.endedAtIso)}</dd>
+          </div>
+          <div>
+            <dt className="text-xs font-medium text-slate-500 dark:text-slate-400">Flagged</dt>
+            <dd className="mt-0.5 text-slate-800 dark:text-slate-200">{session.flagged ? "Yes" : "No"}</dd>
           </div>
           {session.legacy ? (
             <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">

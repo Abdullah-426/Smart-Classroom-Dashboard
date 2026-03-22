@@ -22,10 +22,14 @@ Default **Node-RED → bridge** URL in `all_flows_edit.json`: **`http://host.doc
 
 The bridge listens on **`0.0.0.0`** when you use `npm run storage` or `npm run dev:all` (via `STORAGE_BRIDGE_HOST`), so containers can reach your PC’s port **4050**. The dashboard still uses `http://127.0.0.1:4050` through Vite’s proxy on the host.
 
-- `POST /ingest` — JSON body (Node-RED **Prepare storage POST** → **POST storage bridge**)
+- `POST /ingest` — JSON body (Node-RED **Prepare storage POST** → **POST storage bridge**). If **`pipelineLive`: `false`**, the bridge **skips** appending telemetry (MQTT **gap > 10s** vs previous message). Omit or `true` to store (backward compatible).
+- Downtime ticks use the same **4000 / 7000 ms** hysteresis as the dashboard (`pipelineStableLive` in Node-RED).
+- `POST /api/storage/downtime/tick` — body `{ "isLive": true|false }` (Node-RED **Downtime tick 5s** inject). Updates persisted **`data/downtime.json`**.
+- `POST /api/storage/downtime/reset` — zero total downtime (dashboard Analytics reset button); if still offline, a new segment starts from now.
 - `GET /api/storage/info` — sizes, counts, time range, plus **`bridgeIngestSinceStart`** / **`bridgeLastIngestIso`** (whether Node-RED has POSTed since this bridge started)
-- `GET /api/storage/temperature-trend?limit=200` — points for the chart
-- `GET /api/storage/occupancy-sessions` — completed sessions
+- `GET /api/storage/temperature-trend?limit=200` — points for the chart (`time`, **`atMs`** from `receivedAt`, `temperature`)
+- `GET /api/storage/occupancy-sessions` — `{ ok, sessions, currentSession }`. **sessions**: completed rows (`sessionNumber`, `durationText`, timestamps, `legacy`, **`flagged`**). **currentSession**: in-progress occupancy from bridge state (`active`, `sessionNumber`, `startedAtIso`, `durationSoFarText`) or `null`.
+- `PATCH /api/storage/occupancy-sessions/flag` — body `{ "sessionKey": "<startedAtIso>|<endedAtIso>|<durationText>", "flagged": true|false }` (same key as dashboard merge). Updates one row in **`data/occupancy-sessions.json`**.
 - `POST /api/storage/clear` — wipe files and reset state
 
 ## Frontend dev

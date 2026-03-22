@@ -12,8 +12,8 @@ export interface TelemetryPayload {
   tempThreshold: number;
   /** Node-RED host epoch ms when /api/telemetry was built (for pipeline age). */
   serverTimeMs?: number;
-  /** Node-RED host epoch ms when last MQTT telemetry (e.g. Wokwi) was received. */
-  lastWokwiMqttMs?: number;
+  /** Node-RED host epoch ms when last MQTT telemetry (e.g. Wokwi) was received. `null` if unknown (never use 0 sentinel). */
+  lastWokwiMqttMs?: number | null;
 }
 
 export interface OccupancySessionDetail {
@@ -24,6 +24,16 @@ export interface OccupancySessionDetail {
   startedAtIso: string | null;
   endedAtIso: string | null;
   legacy?: boolean;
+  /** User flag; persisted in `data/occupancy-sessions.json` via storage bridge. */
+  flagged?: boolean;
+}
+
+/** In-progress occupancy from storage-bridge state (room currently occupied). */
+export interface CurrentOccupancySession {
+  active: true;
+  sessionNumber: number | null;
+  startedAtIso: string | null;
+  durationSoFarText: string;
 }
 
 export interface DashboardSummaryPayload {
@@ -85,7 +95,10 @@ export interface ScheduleStateResponse {
 
 export interface TrendPoint {
   time: string;
-  temperature: number;
+  /** Monotonic x-axis (epoch ms, usually server clock). Avoids duplicate `time` strings breaking Recharts. */
+  atMs?: number;
+  /** `null` breaks the chart line when the pipeline / Wokwi is not live. */
+  temperature: number | null;
 }
 
 export interface CommandPayload {

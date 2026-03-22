@@ -16,6 +16,7 @@ const DATA_DIR = path.join(__dirname, "data");
 const TELEMETRY_FILE = path.join(DATA_DIR, "telemetry.jsonl");
 const SESSIONS_FILE = path.join(DATA_DIR, "occupancy-sessions.json");
 const STATE_FILE = path.join(DATA_DIR, "bridge-state.json");
+const DOWNTIME_FILE = path.join(DATA_DIR, "downtime.json");
 
 /** Since this process started (helps diagnose “bridge reachable” but Node-RED never hits /ingest). */
 let bridgeIngestCount = 0;
@@ -53,9 +54,29 @@ function saveState(state) {
   writeJsonAtomic(STATE_FILE, state);
 }
 
+/** Same identity as frontend `occupancySessionKey` (merge + flag PATCH). */
+function occupancySessionKey(s) {
+  return `${s.startedAtIso ?? ""}|${s.endedAtIso ?? ""}|${String(s.durationText ?? "")}`;
+}
+
+function normalizeSessionRow(s) {
+  if (!s || typeof s !== "object") return null;
+  return {
+    sessionNumber: typeof s.sessionNumber === "number" ? s.sessionNumber : null,
+    durationText: String(s.durationText ?? ""),
+    durationMinutes: typeof s.durationMinutes === "number" ? s.durationMinutes : undefined,
+    durationSeconds: typeof s.durationSeconds === "number" ? s.durationSeconds : undefined,
+    startedAtIso: typeof s.startedAtIso === "string" ? s.startedAtIso : null,
+    endedAtIso: typeof s.endedAtIso === "string" ? s.endedAtIso : null,
+    legacy: Boolean(s.legacy),
+    flagged: Boolean(s.flagged),
+  };
+}
+
 function loadSessions() {
   const arr = readJsonSafe(SESSIONS_FILE, []);
-  return Array.isArray(arr) ? arr : [];
+  if (!Array.isArray(arr)) return [];
+  return arr.map(normalizeSessionRow).filter(Boolean);
 }
 
 function saveSessions(list) {
@@ -74,7 +95,73 @@ function formatDurationMs(ms) {
   return { text: `${m} min ${s} sec`, minutes: m, seconds: totalSec };
 }
 
+function loadDowntimeState() {
+  const s = readJsonSafe(DOWNTIME_FILE, {});
+  return {
+    totalDowntimeMs: Number.isFinite(s.totalDowntimeMs) ? Math.max(0, s.totalDowntimeMs) : 0,
+    offSinceMs: typeof s.offSinceMs === "number" && s.offSinceMs > 0 ? s.offSinceMs : null,
+  };
+}
+
+function saveDowntimeState(st) {
+  writeJsonAtomic(DOWNTIME_FILE, st);
+}
+
+/** Credit downtime accrued while the bridge process was stopped (off segment was open). */
+function normalizeDowntimeAfterBridgeStart() {
+  ensureDir();
+  const now = Date.now();
+  const st = loadDowntimeState();
+  if (st.offSinceMs != null) {
+    st.totalDowntimeMs += Math.max(0, now - st.offSinceMs);
+    st.offSinceMs = null;
+    saveDowntimeState(st);
+  }
+}
+
+function downtimeDisplayMsAt(now = Date.now()) {
+  const st = loadDowntimeState();
+  let display = st.totalDowntimeMs;
+  if (st.offSinceMs != null) display += Math.max(0, now - st.offSinceMs);
+  return display;
+}
+
+function downtimeTick(isLive) {
+  const now = Date.now();
+  const st = loadDowntimeState();
+  if (!isLive) {
+    if (st.offSinceMs == null) st.offSinceMs = now;
+  } else if (st.offSinceMs != null) {
+    st.totalDowntimeMs += Math.max(0, now - st.offSinceMs);
+    st.offSinceMs = null;
+  }
+  saveDowntimeState(st);
+  return {
+    ok: true,
+    totalDowntimeMs: st.totalDowntimeMs,
+    displayDowntimeMs: downtimeDisplayMsAt(now),
+    offSinceMs: st.offSinceMs,
+  };
+}
+
+function downtimeReset() {
+  const now = Date.now();
+  const st = loadDowntimeState();
+  const stillOff = st.offSinceMs != null;
+  const next = {
+    totalDowntimeMs: 0,
+    offSinceMs: stillOff ? now : null,
+  };
+  saveDowntimeState(next);
+  return { ok: true, totalDowntimeMs: 0, offSinceMs: next.offSinceMs, displayDowntimeMs: 0 };
+}
+
 function processIngest(body) {
+  const pipelineLive = body.pipelineLive !== false;
+  if (!pipelineLive) {
+    return { ok: true, skipped: true, reason: "pipeline_not_live" };
+  }
+
   const receivedAt = typeof body.receivedAt === "number" ? body.receivedAt : Date.now();
   const occupied = Boolean(body.occupied);
   const line = {
@@ -113,6 +200,7 @@ function processIngest(body) {
       startedAtIso,
       endedAtIso,
       legacy: false,
+      flagged: false,
     });
     state.nextSessionNumber += 1;
     state.openStart = null;
@@ -122,6 +210,34 @@ function processIngest(body) {
   state.lastOccupied = occupied;
   saveState(state);
   return { ok: true };
+}
+
+/** In-progress session row for dashboard (bridge state). */
+function currentOccupancyFromState(state) {
+  if (!state.lastOccupied || state.openStart == null) return null;
+  const dur = Date.now() - state.openStart;
+  const { text } = formatDurationMs(dur);
+  return {
+    active: true,
+    sessionNumber: state.nextSessionNumber,
+    startedAtIso: new Date(state.openStart).toISOString(),
+    durationSoFarText: text,
+  };
+}
+
+function patchOccupancySessionFlag(sessionKey, flagged) {
+  if (typeof sessionKey !== "string" || !sessionKey.trim()) {
+    return { ok: false, error: "sessionKey required" };
+  }
+  const sessions = loadSessions();
+  const idx = sessions.findIndex((s) => occupancySessionKey(s) === sessionKey);
+  if (idx < 0) {
+    return { ok: false, error: "session_not_found" };
+  }
+  const next = sessions.slice();
+  next[idx] = { ...next[idx], flagged: Boolean(flagged) };
+  saveSessions(next);
+  return { ok: true, sessionKey, flagged: Boolean(flagged) };
 }
 
 function readBody(req) {
@@ -170,14 +286,21 @@ function tailJsonlTemperature(limit) {
     })
     .filter(Boolean);
   const slice = rows.slice(-Math.max(1, limit));
-  return slice.map((r) => ({
-    time: new Date(r.receivedAt).toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    }),
-    temperature: typeof r.temperature === "number" ? r.temperature : 0,
-  }));
+  let prevAt = 0;
+  return slice.map((r) => {
+    let atMs = typeof r.receivedAt === "number" && Number.isFinite(r.receivedAt) ? r.receivedAt : Date.now();
+    if (atMs <= prevAt) atMs = prevAt + 1;
+    prevAt = atMs;
+    return {
+      time: new Date(r.receivedAt).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      }),
+      atMs,
+      temperature: typeof r.temperature === "number" ? r.temperature : 0,
+    };
+  });
 }
 
 function storageInfo() {
@@ -200,6 +323,8 @@ function storageInfo() {
       newest = null;
     }
   }
+  const dState = loadDowntimeState();
+  const now = Date.now();
   return {
     ok: true,
     dataDirectory: DATA_DIR,
@@ -210,6 +335,9 @@ function storageInfo() {
     newestSampleIso: newest,
     bridgeIngestSinceStart: bridgeIngestCount,
     bridgeLastIngestIso: bridgeLastIngestMs ? new Date(bridgeLastIngestMs).toISOString() : null,
+    downtimeTotalMs: dState.totalDowntimeMs,
+    downtimeDisplayMs: downtimeDisplayMsAt(now),
+    downtimeOffSinceMs: dState.offSinceMs,
   };
 }
 
@@ -250,6 +378,29 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/api/storage/downtime/tick") {
+      const body = await readBody(req);
+      const isLive = Boolean(body.isLive);
+      const out = downtimeTick(isLive);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(out));
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/storage/downtime/reset") {
+      downtimeReset();
+      const now = Date.now();
+      const out = {
+        ok: true,
+        totalDowntimeMs: loadDowntimeState().totalDowntimeMs,
+        displayDowntimeMs: downtimeDisplayMsAt(now),
+        offSinceMs: loadDowntimeState().offSinceMs,
+      };
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(out));
+      return;
+    }
+
     if (req.method === "GET" && url.pathname === "/api/storage/info") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(storageInfo()));
@@ -265,8 +416,26 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && url.pathname === "/api/storage/occupancy-sessions") {
+      const state = loadState();
+      const currentSession = currentOccupancyFromState(state);
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ok: true, sessions: loadSessions() }));
+      res.end(
+        JSON.stringify({
+          ok: true,
+          sessions: loadSessions(),
+          currentSession,
+        }),
+      );
+      return;
+    }
+
+    if (req.method === "PATCH" && url.pathname === "/api/storage/occupancy-sessions/flag") {
+      const body = await readBody(req);
+      const out = patchOccupancySessionFlag(body.sessionKey, body.flagged);
+      res.writeHead(out.ok ? 200 : out.error === "session_not_found" ? 404 : 400, {
+        "Content-Type": "application/json",
+      });
+      res.end(JSON.stringify(out));
       return;
     }
 
@@ -286,6 +455,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 ensureDir();
+normalizeDowntimeAfterBridgeStart();
 server.listen(PORT, HOST, () => {
   const loopHint = HOST === "0.0.0.0" ? "all interfaces" : HOST;
   console.log(`[storage-bridge] listening on http://${loopHint}:${PORT}`);

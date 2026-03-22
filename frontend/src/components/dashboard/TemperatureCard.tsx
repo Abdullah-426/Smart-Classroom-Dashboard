@@ -22,8 +22,8 @@ export function TemperatureCard({ telemetry, trend }: TemperatureCardProps) {
     else deltaLabel = "At target";
   }
 
-  const recent = trend.filter((p) => Number.isFinite(p.temperature));
-  const recentTemps = recent.map((p) => p.temperature);
+  const recent = trend.filter((p) => typeof p.temperature === "number" && Number.isFinite(p.temperature));
+  const recentTemps = recent.map((p) => p.temperature as number);
   const recentMin = recentTemps.length ? Math.min(...recentTemps) : null;
   const recentMax = recentTemps.length ? Math.max(...recentTemps) : null;
 

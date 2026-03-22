@@ -1,10 +1,17 @@
-import type { OccupancySessionDetail, TrendPoint } from "../types/dashboard";
+import type { CurrentOccupancySession, OccupancySessionDetail, TrendPoint } from "../types/dashboard";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
 /** Shown in UI when the bridge is down (Vite proxy → 502 / connection refused). */
 export const STORAGE_BRIDGE_HELP =
   "From the project root (folder with storage-bridge.mjs): run npm run storage in a second terminal, or npm run dev:all to start bridge + Vite together.";
+
+export interface OccupancySessionsPayload {
+  sessions: OccupancySessionDetail[];
+  currentSession: CurrentOccupancySession | null;
+}
+
+const EMPTY_OCC_PAYLOAD: OccupancySessionsPayload = { sessions: [], currentSession: null };
 
 export interface StorageInfoResponse {
   ok: boolean;
@@ -17,6 +24,10 @@ export interface StorageInfoResponse {
   /** Successful POST /ingest calls since this bridge process started (diagnostics). */
   bridgeIngestSinceStart?: number;
   bridgeLastIngestIso?: string | null;
+  /** Total downtime when pipeline is “off” (persisted). */
+  downtimeDisplayMs?: number;
+  downtimeTotalMs?: number;
+  downtimeOffSinceMs?: number | null;
   error?: string;
 }
 
@@ -57,19 +68,50 @@ export const storageApi = {
     }
   },
 
-  async getOccupancySessions(): Promise<OccupancySessionDetail[]> {
+  async getOccupancySessions(): Promise<OccupancySessionsPayload> {
     try {
-      const r = await requestJson<{ ok: boolean; sessions: OccupancySessionDetail[] }>(
-        "/api/storage/occupancy-sessions",
-      );
-      return Array.isArray(r.sessions) ? r.sessions : [];
+      const r = await requestJson<{
+        ok: boolean;
+        sessions: OccupancySessionDetail[];
+        currentSession?: CurrentOccupancySession | null;
+      }>("/api/storage/occupancy-sessions");
+      return {
+        sessions: Array.isArray(r.sessions) ? r.sessions : [],
+        currentSession: r.currentSession && r.currentSession.active === true ? r.currentSession : null,
+      };
     } catch {
-      return [];
+      return EMPTY_OCC_PAYLOAD;
     }
+  },
+
+  async patchOccupancySessionFlag(sessionKey: string, flagged: boolean): Promise<{ ok: boolean; error?: string }> {
+    const response = await fetch(`${API_BASE_URL}/api/storage/occupancy-sessions/flag`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionKey, flagged }),
+    });
+    let data: { ok: boolean; error?: string } = { ok: false };
+    try {
+      data = (await response.json()) as { ok: boolean; error?: string };
+    } catch {
+      /* non-JSON error body */
+    }
+    if (!response.ok) {
+      throw new Error(data.error || `HTTP ${response.status}`);
+    }
+    return data;
   },
 
   async clear(): Promise<{ ok: boolean }> {
     return requestJson("/api/storage/clear", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+  },
+
+  async resetDowntime(): Promise<{ ok: boolean }> {
+    return requestJson("/api/storage/downtime/reset", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),

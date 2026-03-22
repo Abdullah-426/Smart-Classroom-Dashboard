@@ -11,7 +11,8 @@ Smart Classroom Dashboard/
 ├── data/                     # created when bridge runs; gitignored
 │   ├── telemetry.jsonl
 │   ├── occupancy-sessions.json
-│   └── bridge-state.json
+│   ├── bridge-state.json
+│   └── downtime.json         # persisted pipeline downtime total
 ├── frontend/                 # Vite + React dashboard
 │   ├── package.json
 │   ├── vite.config.ts        # proxy /api/storage → :4050, /api → Node-RED
