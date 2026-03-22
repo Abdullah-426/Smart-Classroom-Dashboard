@@ -1,0 +1,34 @@
+================================================================================
+  SMART CLASSROOM DASHBOARD — RUN EVERYTHING (short checklist)
+================================================================================
+
+ONE-TIME (per machine / after git clone)
+  1. Open terminal in this folder (project root — same level as storage-bridge.mjs).
+  2. Run:  npm install
+
+EVERY SESSION (after PC restart)
+  1. Start Docker Desktop — wait until it is fully ready.
+  2. Start Node-RED (your usual Docker/container way). Wait until the editor opens.
+  3. If you use this repo’s flow file: import all_flows_edit.json once, then Deploy.
+     • POST storage bridge URL must be:  http://host.docker.internal:4050/ingest
+       (Do NOT use 127.0.0.1 if Node-RED runs inside Docker.)
+  4. In project root:  npm run dev:all
+     • Starts storage bridge (port 4050) + Vite dashboard.
+  5. Start Wokwi (simulation) so MQTT telemetry is published.
+
+OPEN THE DASHBOARD
+  • Use the URL Vite prints (usually http://localhost:5173).
+
+QUICK HEALTH CHECK
+  • Dashboard → Local storage: Bridge = Reachable, “POSTs to /ingest” increases while Wokwi runs.
+  • data/telemetry.jsonl grows (gitignored).
+
+IF STORAGE FAILS AFTER RE-IMPORTING FLOWS
+  • Fix POST storage bridge URL → host.docker.internal (see step 3).
+  • Restart: npm run dev:all
+
+NODE-RED ON HOST (no Docker)
+  • Set POST URL to:  http://127.0.0.1:4050/ingest
+  • Run bridge:  npm run storage:loopback   (or: node ./storage-bridge.mjs)
+
+================================================================================

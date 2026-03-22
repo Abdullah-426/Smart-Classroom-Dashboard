@@ -7,8 +7,9 @@ Persists telemetry samples and derived occupancy sessions under `data/` in the p
 From **project root** (same folder as `storage-bridge.mjs`):
 
 ```bash
-npm install   # installs devDependency `concurrently` for `npm run dev:all`
-npm run storage
+npm install   # concurrently, cross-env
+npm run storage          # listens on 0.0.0.0:4050 (Docker-friendly)
+# or: npm run storage:loopback   # 127.0.0.1 only — use with Node-RED on the host + flow URL 127.0.0.1
 ```
 
 **One command (bridge + Vite):** from project root, after `npm install`:
@@ -17,7 +18,9 @@ npm run storage
 npm run dev:all
 ```
 
-Default URL: `http://127.0.0.1:4050`
+Default **Node-RED → bridge** URL in `all_flows_edit.json`: **`http://host.docker.internal:4050/ingest`** (Docker Desktop). If Node-RED runs **on the host** (no container), change that node to `http://127.0.0.1:4050/ingest`.
+
+The bridge listens on **`0.0.0.0`** when you use `npm run storage` or `npm run dev:all` (via `STORAGE_BRIDGE_HOST`), so containers can reach your PC’s port **4050**. The dashboard still uses `http://127.0.0.1:4050` through Vite’s proxy on the host.
 
 - `POST /ingest` — JSON body (Node-RED **Prepare storage POST** → **POST storage bridge**)
 - `GET /api/storage/info` — sizes, counts, time range, plus **`bridgeIngestSinceStart`** / **`bridgeLastIngestIso`** (whether Node-RED has POSTed since this bridge started)

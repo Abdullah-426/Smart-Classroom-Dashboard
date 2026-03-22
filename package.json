@@ -3,10 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "storage": "node ./storage-bridge.mjs",
-    "dev:all": "concurrently -n storage,vite -c cyan,magenta \"node ./storage-bridge.mjs\" \"npm run dev --prefix ./frontend\""
+    "storage": "cross-env STORAGE_BRIDGE_HOST=0.0.0.0 node ./storage-bridge.mjs",
+    "storage:loopback": "node ./storage-bridge.mjs",
+    "dev:all": "concurrently -n storage,vite -c cyan,magenta \"cross-env STORAGE_BRIDGE_HOST=0.0.0.0 node ./storage-bridge.mjs\" \"npm run dev --prefix ./frontend\""
   },
   "devDependencies": {
-    "concurrently": "^9.1.2"
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3"
   }
 }

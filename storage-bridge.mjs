@@ -1,6 +1,7 @@
 /**
  * Local persistence for dashboard telemetry + derived occupancy sessions.
- * Run: npm run storage (from project root). Node-RED POSTs to http://127.0.0.1:4050/ingest
+ * Run: npm run storage / npm run dev:all (binds 0.0.0.0 by default for Docker → host).
+ * Node-RED in Docker: POST http://host.docker.internal:<port>/ingest (see all_flows_edit.json).
  */
 import http from "node:http";
 import fs from "node:fs";

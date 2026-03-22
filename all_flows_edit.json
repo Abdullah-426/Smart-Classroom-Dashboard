@@ -279,7 +279,7 @@
         "type": "comment",
         "z": "51ea9c70bb53699f",
         "name": "Storage bridge URL",
-        "info": "Node-RED on this machine: keep http://127.0.0.1:4050/ingest\n\nDocker Desktop: use http://host.docker.internal:4050/ingest\n\nDebug node “storage bridge response” must be enabled + Deploy to see messages in the Debug sidebar (not the browser devtools console).",
+        "info": "DEFAULT URL IS FOR DOCKER DESKTOP (Node-RED in a container).\n\nIf Node-RED runs directly on Windows/Mac (no Docker), open POST storage bridge and set URL to:\nhttp://127.0.0.1:4050/ingest\n\nLinux Docker: add --add-host=host.docker.internal:host-gateway (or use your host LAN IP).\n\nEnable debug “storage bridge response” + Deploy to see POST replies in the Debug sidebar.",
         "x": 860,
         "y": 248,
         "wires": []
@@ -292,7 +292,7 @@
         "method": "POST",
         "ret": "txt",
         "paytoqs": "ignore",
-        "url": "http://127.0.0.1:4050/ingest",
+        "url": "http://host.docker.internal:4050/ingest",
         "tls": "",
         "persist": false,
         "proxy": "",

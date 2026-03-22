@@ -6,7 +6,7 @@ Root: **`Smart Classroom Dashboard/`** (name may vary on disk).
 Smart Classroom Dashboard/
 ├── package.json              # npm run storage | npm run dev:all
 ├── package-lock.json         # after npm install at root
-├── storage-bridge.mjs        # HTTP server on 127.0.0.1:4050 (default)
+├── storage-bridge.mjs        # HTTP on port 4050; npm scripts bind 0.0.0.0 for Docker
 ├── .gitignore                # includes /data/
 ├── data/                     # created when bridge runs; gitignored
 │   ├── telemetry.jsonl
