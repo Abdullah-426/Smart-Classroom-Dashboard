@@ -47,6 +47,10 @@ Accepts commands like:
 ## POST /api/ai-report
 Temporary placeholder for Phase C.
 
+## Local storage bridge (separate process)
+
+Not served by Node-RED. Run `npm run storage` from the repo root; Vite dev proxies `/api/storage` to `http://127.0.0.1:4050`. See `docs/storage-bridge.md`.
+
 ## Schedule checker (Node-RED host clock)
 
 When **schedule checker** is enabled (`flow.scheduleEnabled`, default `true`), a repeating inject fires **Schedule Checker**, which publishes MQTT commands using the **Node-RED machine’s local system time**:

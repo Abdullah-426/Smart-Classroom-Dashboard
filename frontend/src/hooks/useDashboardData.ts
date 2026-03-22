@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { dashboardApi } from "../services/api";
+import { storageApi, type StorageInfoResponse } from "../services/storageApi";
+import { mergeOccupancySessionLists } from "../utils/mergeOccupancySessions";
 import type {
   DashboardBundle,
   DashboardSummaryPayload,
@@ -12,7 +14,8 @@ import type {
 } from "../types/dashboard";
 
 const POLL_MS = 2500;
-const MAX_TREND_POINTS = 25;
+/** Live chart + persisted tail (storage-bridge). */
+const MAX_TREND_POINTS = 200;
 /** Max age of last Wokwi→MQTT message on Node-RED clock to count as “live” (~5× typical sim interval). */
 const PIPELINE_MAX_AGE_MS = 12_000;
 
@@ -114,9 +117,12 @@ function buildTrend(prev: TrendPoint[], temperature: number): TrendPoint[] {
 
 export function useDashboardData() {
   const [bundle, setBundle] = useState<DashboardBundle | null>(null);
+  const bundleRef = useRef<DashboardBundle | null>(null);
+  const trendResetRef = useRef(false);
   const [scheduleState, setScheduleState] = useState<ScheduleStateResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [storageInfo, setStorageInfo] = useState<StorageInfoResponse | null>(null);
   /**
    * Dashboard clock for the header ("Updated …"). Set in `load()` after a successful poll.
    * Controls no longer shows time — this is the single client-side clock source for the UI.
@@ -126,24 +132,50 @@ export function useDashboardData() {
 
   const load = useCallback(async () => {
     try {
-      const [telemetry, summary, ml, sched] = await Promise.all([
+      const needTrendSeed = trendResetRef.current || !bundleRef.current?.trend?.length;
+      let trendSeed: TrendPoint[] = [];
+      if (needTrendSeed) {
+        trendSeed = await storageApi.getTrendPoints(MAX_TREND_POINTS).catch(() => []);
+      }
+
+      const [telemetry, summary, ml, sched, sInfo, storedOcc] = await Promise.all([
         dashboardApi.getTelemetry(),
         dashboardApi.getSummary(),
         dashboardApi.getMl(),
         dashboardApi.getScheduleState(),
+        storageApi.getInfo(),
+        storageApi.getOccupancySessions().catch(() => []),
       ]);
       const safeTelemetry = normalizeTelemetry(telemetry);
-      const safeSummary = normalizeSummary(summary);
+      const liveOcc = normalizeOccupancySessionList(summary.occupancySessionList);
+      const mergedOcc = mergeOccupancySessionLists(storedOcc, liveOcc);
+      const safeSummary = {
+        ...normalizeSummary(summary),
+        occupancySessionList: mergedOcc,
+        occupancySessions: mergedOcc.length,
+      };
       const safeMl = normalizeMl(ml);
 
       setScheduleState(sched);
+      setStorageInfo(sInfo);
       setPipelineConnected(isPipelineLive(safeTelemetry));
-      setBundle((current) => ({
-        telemetry: safeTelemetry,
-        summary: safeSummary,
-        ml: safeMl,
-        trend: buildTrend(current?.trend ?? [], safeTelemetry.temperature),
-      }));
+      setBundle((current) => {
+        let baseTrend = current?.trend ?? [];
+        if (trendResetRef.current) {
+          trendResetRef.current = false;
+          baseTrend = trendSeed.length ? trendSeed : [];
+        } else if (!baseTrend.length && trendSeed.length) {
+          baseTrend = trendSeed;
+        }
+        const next: DashboardBundle = {
+          telemetry: safeTelemetry,
+          summary: safeSummary,
+          ml: safeMl,
+          trend: buildTrend(baseTrend, safeTelemetry.temperature),
+        };
+        bundleRef.current = next;
+        return next;
+      });
       setError(null);
       setLastUpdated(
         new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
@@ -155,6 +187,16 @@ export function useDashboardData() {
       setLoading(false);
     }
   }, []);
+
+  const clearPersistedStorage = useCallback(async () => {
+    try {
+      await storageApi.clear();
+    } catch {
+      /* Bridge may be stopped; still reset in-memory trend on next load */
+    }
+    trendResetRef.current = true;
+    await load();
+  }, [load]);
 
   /** Merge toggle API response so UI updates immediately without waiting for full refresh. */
   const applyScheduleAfterToggle = useCallback((r: ScheduleToggleResponse) => {
@@ -196,6 +238,8 @@ export function useDashboardData() {
     error,
     lastUpdated,
     pipelineConnected,
+    storageInfo,
+    clearPersistedStorage,
     alerts,
     refresh: load,
   };

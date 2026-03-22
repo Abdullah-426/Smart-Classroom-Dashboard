@@ -7,6 +7,7 @@ import { HeaderBar } from "./components/dashboard/HeaderBar";
 import { MlInsightsCard } from "./components/dashboard/MlInsightsCard";
 import { StatusCard } from "./components/dashboard/StatusCard";
 import { TemperatureCard } from "./components/dashboard/TemperatureCard";
+import { StoragePanel } from "./components/dashboard/StoragePanel";
 import { TemperatureTrendCard } from "./components/dashboard/TemperatureTrendCard";
 import { useDashboardData } from "./hooks/useDashboardData";
 import { dashboardApi } from "./services/api";
@@ -21,6 +22,8 @@ function App() {
     error,
     lastUpdated,
     pipelineConnected,
+    storageInfo,
+    clearPersistedStorage,
     alerts,
     refresh,
   } = useDashboardData();
@@ -96,6 +99,7 @@ function App() {
         <TemperatureTrendCard trend={bundle.trend} />
         <MlInsightsCard ml={bundle.ml} />
         <AiReportCard />
+        <StoragePanel storageInfo={storageInfo} onClearStorage={clearPersistedStorage} />
       </section>
     </main>
   );

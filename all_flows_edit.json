@@ -249,9 +249,80 @@
                 "e8d9bce2af5cdab0",
                 "ec9800cbd5cad990",
                 "bcfef89dfcc78679",
-                "79ca6ac5c19b654e"
+                "79ca6ac5c19b654e",
+                "f8a01c2de4b53910"
             ]
         ]
+    },
+    {
+        "id": "f8a01c2de4b53910",
+        "type": "function",
+        "z": "51ea9c70bb53699f",
+        "name": "Prepare storage POST",
+        "func": "let d = msg.payload;\nmsg.headers = { \"Content-Type\": \"application/json\" };\nmsg.payload = {\n    receivedAt: Date.now(),\n    temperature: typeof d.temperature === \"number\" ? d.temperature : null,\n    motion: !!d.motion,\n    occupied: !!d.occupied,\n    light: d.light ? 1 : 0,\n    fan: d.fan ? 1 : 0,\n    mode: d.mode || \"auto\",\n    tempThreshold: typeof d.tempThreshold === \"number\" ? d.tempThreshold : 28\n};\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 820,
+        "y": 200,
+        "wires": [
+            [
+                "e79bf3d4c5a42820"
+            ]
+        ]
+    },
+    {
+        "id": "e1e2e3f4a5b6c7d8",
+        "type": "comment",
+        "z": "51ea9c70bb53699f",
+        "name": "Storage bridge URL",
+        "info": "Node-RED on this machine: keep http://127.0.0.1:4050/ingest\n\nDocker Desktop: use http://host.docker.internal:4050/ingest\n\nDebug node “storage bridge response” must be enabled + Deploy to see messages in the Debug sidebar (not the browser devtools console).",
+        "x": 860,
+        "y": 248,
+        "wires": []
+    },
+    {
+        "id": "e79bf3d4c5a42820",
+        "type": "http request",
+        "z": "51ea9c70bb53699f",
+        "name": "POST storage bridge",
+        "method": "POST",
+        "ret": "txt",
+        "paytoqs": "ignore",
+        "url": "http://127.0.0.1:4050/ingest",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 1040,
+        "y": 200,
+        "wires": [
+            [
+                "c7a8b9d0e1f23456"
+            ]
+        ]
+    },
+    {
+        "id": "c7a8b9d0e1f23456",
+        "type": "debug",
+        "z": "51ea9c70bb53699f",
+        "name": "storage bridge response",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1260,
+        "y": 200,
+        "wires": []
     },
     {
         "id": "802a5b24d6de93ab",

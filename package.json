@@ -1,0 +1,12 @@
+{
+  "name": "smart-classroom-dashboard",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "storage": "node ./storage-bridge.mjs",
+    "dev:all": "concurrently -n storage,vite -c cyan,magenta \"node ./storage-bridge.mjs\" \"npm run dev --prefix ./frontend\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

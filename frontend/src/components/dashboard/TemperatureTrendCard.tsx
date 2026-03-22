@@ -18,7 +18,12 @@ interface TemperatureTrendCardProps {
 
 export function TemperatureTrendCard({ trend }: TemperatureTrendCardProps) {
   return (
-    <Card title="Temperature Trend" subtitle="Live 2.5s polling trend" icon={<LineChart size={18} />} className="lg:col-span-2">
+    <Card
+      title="Temperature Trend"
+      subtitle="Live 2.5s polling + local file history (storage bridge)"
+      icon={<LineChart size={18} />}
+      className="lg:col-span-2"
+    >
       <div className="h-64">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={trend}>
