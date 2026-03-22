@@ -181,8 +181,8 @@ export function useDashboardData() {
   const [error, setError] = useState<string | null>(null);
   const [storageInfo, setStorageInfo] = useState<StorageInfoResponse | null>(null);
   /**
-   * Dashboard clock for the header ("Updated …"). Set in `load()` after a successful poll.
-   * Controls no longer shows time — this is the single client-side clock source for the UI.
+   * Header "Updated …" time: same wall clock as Schedule Checker (Node-RED host local via
+   * GET /api/schedule-state `serverLocalTime`). Falls back to browser time only if absent.
    */
   const [lastUpdated, setLastUpdated] = useState<string>("-");
   const [pipelineConnected, setPipelineConnected] = useState<boolean | null>(null);
@@ -273,7 +273,13 @@ export function useDashboardData() {
       });
       setError(null);
       setLastUpdated(
-        new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+        sched.serverLocalTime ??
+          new Date().toLocaleTimeString("en-GB", {
+            hour12: false,
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+          }),
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
@@ -317,6 +323,9 @@ export function useDashboardData() {
       serverLocalTime: r.serverLocalTime,
       scheduleWindowLabel: r.scheduleWindowLabel,
     });
+    if (r.serverLocalTime) {
+      setLastUpdated(r.serverLocalTime);
+    }
   }, []);
 
   useEffect(() => {

@@ -15,6 +15,21 @@ const FORCE_MOCK = import.meta.env.VITE_USE_MOCK === "true";
 const SCHEDULE_TOGGLE_TIMEOUT_MS = 15_000;
 const SCHEDULE_STATE_TIMEOUT_MS = 8_000;
 
+/** IANA zone from the machine running the dashboard; Node-RED stores it on flow for schedule checks. */
+function browserClassroomTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+  } catch {
+    return "";
+  }
+}
+
+function scheduleStatePath(): string {
+  const tz = browserClassroomTimeZone();
+  if (!tz) return "/api/schedule-state";
+  return `/api/schedule-state?classroomTz=${encodeURIComponent(tz)}`;
+}
+
 function abortAfter(ms: number): { signal: AbortSignal; clear: () => void } {
   const c = new AbortController();
   const id = window.setTimeout(() => c.abort(), ms);
@@ -115,13 +130,16 @@ export const dashboardApi = {
     try {
       return await requestJson<ScheduleToggleResponse>("/api/schedule-toggle", {
         method: "POST",
-        body: JSON.stringify({ source: "frontend-dashboard" }),
+        body: JSON.stringify({
+          source: "frontend-dashboard",
+          classroomTz: browserClassroomTimeZone(),
+        }),
         signal,
       });
     } catch {
       const st = abortAfter(SCHEDULE_STATE_TIMEOUT_MS);
       try {
-        const s = await requestJson<ScheduleStateResponse>("/api/schedule-state", { signal: st.signal });
+        const s = await requestJson<ScheduleStateResponse>(scheduleStatePath(), { signal: st.signal });
         return {
           ok: true,
           scheduleEnabled: s.scheduleEnabled,
@@ -178,7 +196,7 @@ export const dashboardApi = {
     }
     try {
       // TODO: Node-RED should expose GET /api/schedule-state.
-      return await requestJson<ScheduleStateResponse>("/api/schedule-state");
+      return await requestJson<ScheduleStateResponse>(scheduleStatePath());
     } catch {
       const now = new Date();
       const msFromMidnight =

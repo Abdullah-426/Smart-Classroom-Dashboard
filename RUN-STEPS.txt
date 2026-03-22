@@ -10,6 +10,8 @@ EVERY SESSION (after PC restart)
   1. Start Docker Desktop — wait until it is fully ready.
   2. Start Node-RED (your usual Docker/container way). Wait until the editor opens.
   3. If you use this repo’s flow file: import all_flows_edit.json once, then Deploy.
+     • Schedule 08:00–18:00 uses your dashboard browser timezone (sent on each poll). If Node-RED
+       runs with no dashboard open, set env CLASSROOM_TIMEZONE (IANA name, e.g. Asia/Dubai).
      • POST storage bridge URL:  http://host.docker.internal:4050/ingest
      • POST downtime tick URL:     http://host.docker.internal:4050/api/storage/downtime/tick
        (If Node-RED runs on the host, not Docker, change BOTH to 127.0.0.1.)

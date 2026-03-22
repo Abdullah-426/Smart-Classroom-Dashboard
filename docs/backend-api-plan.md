@@ -51,11 +51,15 @@ Temporary placeholder for Phase C.
 
 Not served by Node-RED. Run `npm run storage` from the repo root; Vite dev proxies `/api/storage` to `http://127.0.0.1:4050`. See `docs/storage-bridge.md`.
 
-## Schedule checker (Node-RED host clock)
+## Schedule checker (classroom wall clock)
 
-When **schedule checker** is enabled (`flow.scheduleEnabled`, default `true`), a repeating inject fires **Schedule Checker**, which publishes MQTT commands using the **Node-RED machine’s local system time**:
+When **schedule checker** is enabled (`flow.scheduleEnabled`, default `true`), a repeating inject fires **Schedule Checker**, which publishes MQTT commands using **08:00–18:00 in a configured timezone**:
 
-- **Active window:** `08:00:00.000` inclusive → `18:00:00.000` exclusive (same calendar day). Sub-minute accuracy via ms-from-midnight. API `scheduleWindowLabel` is the short range `08:00–18:00` (times are Node-RED host local).
+- **Primary:** The dashboard sends `GET /api/schedule-state?classroomTz=<IANA>` (browser `Intl` zone). Node-RED stores it on `flow.scheduleTimeZone` and uses it for `inScheduleWindow`, MQTT `forceOff` / `afterHoursAlert`, and `serverLocalTime` in the API.
+- **Fallback:** Environment variable `CLASSROOM_TIMEZONE` (IANA), e.g. `Asia/Dubai`, when no dashboard has set flow context yet.
+- **Last resort:** Node’s local clock (`getHours()`), which is often **UTC** in Docker — without `classroomTz` or `CLASSROOM_TIMEZONE`, evening local time can wrongly appear “within hours” if UTC is still afternoon.
+
+- **Active window:** `08:00:00.000` inclusive → `18:00:00.000` exclusive (same calendar day). Sub-minute accuracy via ms-from-midnight. API `scheduleWindowLabel` is the short range `08:00–18:00` (wall time in the zone above).
 - **`forceOff` / `afterHoursAlert`:** both `false` inside the window; both `true` outside (lights/fan policy + after-hours motion alert path on firmware/flow).
 
 When the checker is **disabled**, flows send `forceOff: false` and `afterHoursAlert: false` so manual/testing is not overridden.
@@ -66,4 +70,4 @@ JSON: `ok`, `scheduleEnabled`, `inScheduleWindow`, `serverTimeIso`, `serverLocal
 ### POST /api/schedule-toggle
 Toggles `scheduleEnabled`, publishes the appropriate command to MQTT, returns the same fields as above plus `command` `{ forceOff, afterHoursAlert }`.
 
-**Note:** Re-import `all_flows_edit.json` after edits. The dashboard polls schedule state with telemetry so the Controls card stays in sync with the host clock.
+**Note:** Re-import `all_flows_edit.json` after edits. The dashboard polls schedule state with telemetry and sends `classroomTz` so the Controls card and Schedule Checker use the same wall clock as the browser.
