@@ -291,6 +291,7 @@ function parseTelemetryRows() {
 function subsampleRows(rows, maxPoints) {
   if (rows.length <= maxPoints) return rows;
   const n = rows.length;
+  if (maxPoints <= 1) return [rows[n - 1]];
   const out = [];
   for (let i = 0; i < maxPoints; i++) {
     const idx = Math.round((i * (n - 1)) / (maxPoints - 1));

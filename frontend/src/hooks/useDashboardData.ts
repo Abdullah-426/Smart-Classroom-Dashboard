@@ -189,8 +189,8 @@ export function useDashboardData() {
   /** Session keys present in `occupancy-sessions.json` (flag PATCH only works for these). */
   const [storedOccupancySessionKeys, setStoredOccupancySessionKeys] = useState<string[]>([]);
   const [occupancyCurrentSession, setOccupancyCurrentSession] = useState<CurrentOccupancySession | null>(null);
-  /** Hysteresis for green/red + chart (must survive across polls). */
-  const pipelineStableRef = useRef(true);
+  /** Hysteresis for green/red (matches Node-RED downtime tick after deploy). Unknown telemetry until first good age → not live. */
+  const pipelineStableRef = useRef(false);
   /** Count consecutive polls with MQTT age past DEAD while still showing live (need 2 before red). */
   const pipelineAboveDeadStreakRef = useRef(0);
   /** Schmitt for gauge + temperature line segment (~4s / ~6s on MQTT age). */
