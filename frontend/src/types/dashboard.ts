@@ -68,6 +68,10 @@ export interface MlPayload {
 export interface AiReportPayload {
   summary: string;
   generatedAt: string;
+  /** Present when Node-RED returns Phase C metadata */
+  ok?: boolean;
+  model?: string;
+  source?: string;
 }
 
 export interface ScheduleToggleResponse {

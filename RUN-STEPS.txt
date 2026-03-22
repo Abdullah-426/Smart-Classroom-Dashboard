@@ -1,38 +1,92 @@
 ================================================================================
-  SMART CLASSROOM DASHBOARD — RUN EVERYTHING (short checklist)
+  SMART CLASSROOM DASHBOARD — RUN EVERYTHING FROM SCRATCH
+  Use this after a PC restart or any time you need a clean startup order.
 ================================================================================
 
-ONE-TIME (per machine / after git clone)
-  1. Open terminal in this folder (project root — same level as storage-bridge.mjs).
-  2. Run:  npm install
+WHAT RUNS (quick map)
+  • MQTT broker          — Wokwi and Node-RED connect here (URL is in your Wokwi / flow config).
+  • Node-RED             — Usually port 1880; flows, MQTT in/out, HTTP APIs for the dashboard.
+  • Storage bridge       — Port 4050; persists telemetry and downtime state under data/ (gitignored).
+  • Vite (React UI)      — Usually port 5173; proxies /api to Node-RED and /api/storage to the bridge.
+  • Wokwi                — Publishes classroom telemetry to MQTT.
 
-EVERY SESSION (after PC restart)
-  1. Start Docker Desktop — wait until it is fully ready.
-  2. Start Node-RED (your usual Docker/container way). Wait until the editor opens.
-  3. If you use this repo’s flow file: import all_flows_edit.json once, then Deploy.
-     • Schedule 08:00–18:00 uses your dashboard browser timezone (sent on each poll). If Node-RED
-       runs with no dashboard open, set env CLASSROOM_TIMEZONE (IANA name, e.g. Asia/Dubai).
-     • POST storage bridge URL:  http://host.docker.internal:4050/ingest
-     • POST downtime tick URL:     http://host.docker.internal:4050/api/storage/downtime/tick
-       (If Node-RED runs on the host, not Docker, change BOTH to 127.0.0.1.)
-  4. In project root:  npm run dev:all
-     • Starts storage bridge (port 4050) + Vite dashboard.
-  5. Start Wokwi (simulation) so MQTT telemetry is published.
+--------------------------------------------------------------------------------
+ONE-TIME SETUP (after git clone or on a new machine)
+--------------------------------------------------------------------------------
 
-OPEN THE DASHBOARD
-  • Use the URL Vite prints (usually http://localhost:5173).
+  1. Open a terminal in this folder (project root — same directory as storage-bridge.mjs).
 
+  2. Install root tools (concurrently, cross-env):
+       npm install
+
+  3. Install the dashboard app dependencies:
+       npm install --prefix ./frontend
+
+  4. Node-RED flows (once per environment, or when you intentionally refresh flows):
+       • In the Node-RED editor: Menu → Import → select all_flows_edit.json → Deploy.
+       • If Node-RED runs inside Docker on Windows, the default HTTP nodes use:
+           POST http://host.docker.internal:4050/ingest
+           POST http://host.docker.internal:4050/api/storage/downtime/tick
+         If Node-RED runs on the host (no Docker), change BOTH URLs to http://127.0.0.1:4050/...
+       • Optional AI (Groq): set GROQ_API_KEY where Node-RED runs — see node-red.env.example
+         and docs/DOCKER-NODERED.md. Format must be GROQ_API_KEY=gsk_... with no spaces around =.
+
+--------------------------------------------------------------------------------
+EVERY SESSION — START IN THIS ORDER (after restart)
+--------------------------------------------------------------------------------
+
+  1. Start Docker Desktop (if you use Docker for Node-RED and/or your MQTT broker).
+     Wait until Docker reports it is fully running.
+
+  2. Start your MQTT broker (if it is not already always-on).
+     Wokwi and Node-RED must use the same broker host/port/topic scheme you configured.
+
+  3. Start the storage bridge + React dashboard from the project root:
+       npm run dev:all
+     Leave this terminal open. It starts:
+       • storage-bridge on port 4050
+       • Vite dev server (URL printed in the terminal, usually http://localhost:5173)
+     Why before Node-RED: flows POST to the bridge; if 4050 is down, those calls fail until
+     the bridge is up.
+
+  4. Start Node-RED (your usual Docker run / docker start / or local install).
+     Wait until the editor loads at http://127.0.0.1:1880 (or your mapped port).
+     If flows were already deployed, click Deploy once if you changed anything.
+
+  5. Start the Wokwi simulation so it publishes to MQTT.
+     Telemetry should begin appearing in Node-RED and the dashboard.
+
+  6. Open the dashboard in your browser using the URL from step 3 (Vite).
+
+--------------------------------------------------------------------------------
 QUICK HEALTH CHECK
-  • Dashboard → Local storage: Bridge = Reachable, “POSTs to /ingest” increases while Wokwi runs.
-  • data/telemetry.jsonl grows (gitignored).
-  • Optional full checklist: docs/VERIFICATION.md
+--------------------------------------------------------------------------------
 
-IF STORAGE FAILS AFTER RE-IMPORTING FLOWS
-  • Fix POST storage bridge URL → host.docker.internal (see step 3).
-  • Restart: npm run dev:all
+  • Dashboard → Local storage: Bridge = Reachable; “POSTs to /ingest” increases while Wokwi runs.
+  • data/telemetry.jsonl grows (folder is gitignored).
+  • AI Report → Generate AI Report: if GROQ_API_KEY is set in the Node-RED environment,
+    the footer should show source groq; otherwise you still get a local fallback summary.
+  • Optional deeper checklist: docs/VERIFICATION.md
 
-NODE-RED ON HOST (no Docker)
-  • Set POST URL to:  http://127.0.0.1:4050/ingest
-  • Run bridge:  npm run storage:loopback   (or: node ./storage-bridge.mjs)
+--------------------------------------------------------------------------------
+ALTERNATIVE: STORAGE BRIDGE ONLY (no Vite in the same command)
+--------------------------------------------------------------------------------
+
+  From project root:
+       npm run storage
+  (listens on 0.0.0.0:4050 — good when another machine must reach the bridge on your LAN)
+
+  Loopback only:
+       npm run storage:loopback
+
+  If Node-RED runs on the host, set ingest/downtime HTTP nodes to http://127.0.0.1:4050/...
+
+--------------------------------------------------------------------------------
+IF STORAGE OR DOWNTIME LOOKS STUCK AFTER CHANGING FLOWS
+--------------------------------------------------------------------------------
+
+  • Confirm the two POST URLs match your setup (host.docker.internal vs 127.0.0.1).
+  • Restart npm run dev:all (or the storage script) so port 4050 is listening.
+  • Re-Deploy flows in Node-RED.
 
 ================================================================================

@@ -120,8 +120,11 @@ export function getMockMl(): MlPayload {
 
 export function getMockAiReport(): AiReportPayload {
   return {
+    ok: true,
     summary:
       "Classroom is stable. Auto mode is active and occupancy trends are within expected range. Continue monitoring threshold and fan cycle for optimization.",
     generatedAt: new Date().toISOString(),
+    model: "mock",
+    source: "local",
   };
 }

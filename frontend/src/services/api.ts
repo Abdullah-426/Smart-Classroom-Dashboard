@@ -14,6 +14,8 @@ const FORCE_MOCK = import.meta.env.VITE_USE_MOCK === "true";
 
 const SCHEDULE_TOGGLE_TIMEOUT_MS = 15_000;
 const SCHEDULE_STATE_TIMEOUT_MS = 8_000;
+/** Groq + Node-RED; allow headroom over the 26s socket timeout and slow networks. */
+const AI_REPORT_TIMEOUT_MS = 55_000;
 
 /** IANA zone from the machine running the dashboard; Node-RED stores it on flow for schedule checks. */
 function browserClassroomTimeZone(): string {
@@ -95,14 +97,55 @@ export const dashboardApi = {
   },
   async generateAiReport(): Promise<AiReportPayload> {
     if (FORCE_MOCK) return getMockAiReport();
+    const { signal, clear } = abortAfter(AI_REPORT_TIMEOUT_MS);
+    const envHint =
+      "Fix Docker .env: use exactly GROQ_API_KEY=gsk_your_key (no spaces around =, no quotes). Recreate the container with --env-file. See docs/DOCKER-NODERED.md.";
     try {
-      // TODO: Node-RED should expose POST /api/ai-report.
-      return await requestJson<AiReportPayload>("/api/ai-report", {
+      const response = await fetch(`${API_BASE_URL}/api/ai-report`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ source: "frontend-dashboard" }),
+        signal,
       });
-    } catch {
-      return getMockAiReport();
+      const rawText = await response.text();
+      let data: Record<string, unknown> = {};
+      if (rawText) {
+        try {
+          data = JSON.parse(rawText) as Record<string, unknown>;
+        } catch {
+          throw new Error("Non-JSON from Node-RED");
+        }
+      }
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const summary =
+        typeof data.summary === "string"
+          ? data.summary
+          : typeof data.message === "string"
+            ? data.message
+            : "";
+      return {
+        ok: data.ok === true,
+        summary,
+        generatedAt:
+          typeof data.generatedAt === "string" ? data.generatedAt : new Date().toISOString(),
+        model: typeof data.model === "string" ? data.model : undefined,
+        source: typeof data.source === "string" ? data.source : undefined,
+      };
+    } catch (e) {
+      const aborted = e instanceof DOMException && e.name === "AbortError";
+      return {
+        ok: false,
+        summary: aborted
+          ? `AI request timed out (${Math.round(AI_REPORT_TIMEOUT_MS / 1000)}s). From Docker, check outbound HTTPS to api.groq.com. ${envHint}`
+          : `Could not get an AI report (connection or server error). Is Node-RED on port 1880? Restart Vite after pulling (proxy uses 127.0.0.1). ${envHint}`,
+        generatedAt: new Date().toISOString(),
+        model: "fallback",
+        source: "local",
+      };
+    } finally {
+      clear();
     }
   },
   async toggleSchedule(): Promise<ScheduleToggleResponse> {

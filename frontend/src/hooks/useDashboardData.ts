@@ -22,6 +22,12 @@ import {
 } from "../constants/pipeline";
 import { trendRangeMs, type TrendRangeId } from "../constants/temperatureTrend";
 import { mergeHistoricWithLive } from "../utils/temperatureTrendSeries";
+import {
+  formatEnergySavedWh,
+  parseEnergySavedWh,
+  readStoredEnergyWh,
+  writeStoredEnergyWh,
+} from "../utils/estimatedEnergySavedStorage";
 
 const TREND_FETCH_LIMIT = 12_000;
 
@@ -231,6 +237,17 @@ export function useDashboardData() {
       const stable = pipelineStableFromAge(age, pipelineStableRef.current, pipelineAboveDeadStreakRef);
       pipelineStableRef.current = stable;
       setPipelineConnected(stable);
+
+      let energyWh = readStoredEnergyWh();
+      const serverEnergyWh = parseEnergySavedWh(safeSummary.estimatedEnergySaved);
+      if (stable) {
+        energyWh = Math.max(energyWh, serverEnergyWh);
+        writeStoredEnergyWh(energyWh);
+      }
+      const summaryWithEnergy = {
+        ...safeSummary,
+        estimatedEnergySaved: formatEnergySavedWh(energyWh),
+      };
       const lineLive = gaugeChartLiveFromAge(age, chartLineLiveRef.current, gaugeAboveDeadStreakRef);
       chartLineLiveRef.current = lineLive;
       setTrendLineLive(lineLive);
@@ -264,7 +281,7 @@ export function useDashboardData() {
       setBundle(() => {
         const next: DashboardBundle = {
           telemetry: safeTelemetry,
-          summary: safeSummary,
+          summary: summaryWithEnergy,
           ml: safeMl,
           trend: nextTrend,
         };
@@ -299,6 +316,11 @@ export function useDashboardData() {
       await storageApi.clear();
     } catch {
       /* Bridge may be stopped; still reset in-memory trend on next load */
+    }
+    try {
+      await storageApi.resetDowntime();
+    } catch {
+      /* bridge stopped */
     }
     suppressTrendUntilLiveRef.current = true;
     await load();

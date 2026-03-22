@@ -1,24 +1,13 @@
-Smart Classroom Dashboard Starter Pack
+Smart Classroom Dashboard
 
-This folder is meant for your new separate frontend project.
+This repository contains the React dashboard (frontend/), the local storage bridge
+(storage-bridge.mjs), Node-RED flow export (all_flows_edit.json), and supporting docs.
 
-Folder structure:
-- backend-reference/
-- frontend/
-- docs/
+How to run everything from a cold start (correct order, one-time vs every session):
+  See RUN-STEPS.txt
 
-What you should add manually:
-1. backend-reference/node-red-flows-full.json
-2. backend-reference/node-red-main-flow.json
-3. docs/sample-telemetry.json
-4. docs/sample-commands.json
-5. docs/sample-ml-output.json
-6. docs/screenshots/
-7. backend-reference/wokwi-code.ino
+Docker + Groq API key in Node-RED:
+  See docs/DOCKER-NODERED.md
 
-Recommended architecture:
-- Wokwi -> MQTT -> Node-RED
-- React/Next.js frontend -> Node-RED HTTP API
-
-Suggested next step:
-Open this folder in Cursor and use the prompt files in docs/.
+Wokwi / reference copies of flows and sketch:
+  See backend-reference/

@@ -1595,7 +1595,7 @@
         "font": "",
         "fontSize": 16,
         "color": "#717171",
-        "wrapText": false,
+        "wrapText": true,
         "className": "",
         "value": "payload",
         "valueType": "msg",
@@ -1638,7 +1638,7 @@
         "y": 1360,
         "wires": [
             [
-                "644b47231c50b163"
+                "f0a1b2c3d4e5f679"
             ]
         ]
     },
@@ -2054,7 +2054,7 @@
         "y": 1860,
         "wires": [
             [
-                "c4b7e19a2d3658f0"
+                "f0a1b2c3d4e5f678"
             ]
         ]
     },
@@ -2062,19 +2062,19 @@
         "id": "c4b7e19a2d3658f0",
         "type": "function",
         "z": "51ea9c70bb53699f",
-        "name": "API AI Report Placeholder",
-        "func": "msg.payload = {\n    ok: true,\n    message: \"AI report generation placeholder for Phase C\"\n};\nreturn msg;",
+        "name": "API AI Report Prepare",
+        "func": "const isoNow = () => new Date().toISOString();\n\nfunction num(x, def) {\n    const n = Number(x);\n    return Number.isFinite(n) ? n : def;\n}\n\nfunction readBody(m) {\n    let body = m.req && m.req.body;\n    if (typeof body === \"string\") {\n        try { body = JSON.parse(body); } catch (e) { body = {}; }\n    }\n    return body && typeof body === \"object\" ? body : {};\n}\n\nconst body = msg._replyHttp ? readBody(msg) : (msg.payload && typeof msg.payload === \"object\" ? msg.payload : {});\nconst highQuality = body.highQuality === true || body.demoMode === true || body.screenshotMode === true;\n\nconst apiKeyRaw = env.get(\"GROQ_API_KEY\");\nlet apiKey = String(apiKeyRaw || \"\").trim();\nif (apiKey.length >= 2 && ((apiKey.charCodeAt(0) === 34 && apiKey.charCodeAt(apiKey.length - 1) === 34) || (apiKey.charCodeAt(0) === 39 && apiKey.charCodeAt(apiKey.length - 1) === 39))) {\n    apiKey = apiKey.slice(1, -1).trim();\n}\n\nconst defaultModel = String(env.get(\"GROQ_MODEL\") || \"\").trim() || \"openai/gpt-oss-20b\";\nconst hqModel = String(env.get(\"GROQ_MODEL_HIGH_QUALITY\") || \"\").trim() || \"openai/gpt-oss-120b\";\nconst model = highQuality && hqModel ? hqModel : defaultModel;\n\nconst tel = flow.get(\"latestTelemetry\") || {};\nconst summary = flow.get(\"latestDashboardSummary\") || {};\nconst ml = flow.get(\"latestMl\") || {};\n\nlet scheduleEnabled = flow.get(\"scheduleEnabled\");\nif (scheduleEnabled === undefined) scheduleEnabled = true;\n\nconst lastMqtt = flow.get(\"lastWokwiMqttMs\");\n\nconst state = {\n    temperature: num(tel.temperature, null),\n    motion: !!tel.motion,\n    occupied: !!tel.occupied,\n    light: tel.light ? 1 : 0,\n    fan: tel.fan ? 1 : 0,\n    mode: tel.mode || \"unknown\",\n    forceOff: !!tel.forceOff,\n    afterHoursAlert: !!tel.afterHoursAlert,\n    tempThreshold: num(tel.tempThreshold, 28),\n    roomStatus: summary.roomStatus || (tel.occupied ? \"Occupied\" : \"Empty\"),\n    collegeHours: summary.collegeHours || \"\",\n    alerts: Array.isArray(summary.alerts) ? summary.alerts : [],\n    occupancyTimer: summary.occupancyTimer || \"\",\n    estimatedEnergySaved: summary.estimatedEnergySaved || \"\",\n    highTempWarning: summary.highTempWarning || \"\",\n    scheduleEnabled,\n    lastWokwiMqttMs: typeof lastMqtt === \"number\" ? lastMqtt : null,\n    mlPredictedTemp: num(ml.predictedTemp, null),\n    mlConfidence: num(ml.confidence, null),\n    mlAnomaly: !!ml.anomaly,\n    mlAssist: !!ml.assist,\n    mlStatusText: typeof ml.statusText === \"string\" ? ml.statusText : \"\"\n};\n\nfunction buildFallback(s) {\n    let line1 = \"Classroom status: telemetry unavailable; awaiting live MQTT data.\";\n    if (s.temperature != null || s.occupied !== undefined) {\n        const occ = s.occupied ? \"occupied\" : \"unoccupied\";\n        const temp = s.temperature != null ? s.temperature.toFixed(1) + \"°C\" : \"unknown temperature\";\n        line1 = \"Classroom is \" + occ + \" at \" + temp + \"; light \" + (s.light ? \"ON\" : \"OFF\") + \", fan \" + (s.fan ? \"ON\" : \"OFF\") + \", mode \" + String(s.mode || \"auto\").toUpperCase() + \".\";\n    }\n    if (s.forceOff) {\n        line1 = \"Outside scheduled college hours: automation requires lights and fan to remain OFF.\";\n    }\n\n    let line2 = \"Comfort: readings are within expected band for the current threshold.\";\n    if (s.temperature != null && s.temperature > s.tempThreshold + 0.5) {\n        line2 = \"Comfort: temperature exceeds the \" + s.tempThreshold + \"°C threshold — increase cooling or airflow.\";\n    } else if (s.temperature != null && s.temperature < 18) {\n        line2 = \"Comfort: room is cool; verify heating setpoints if occupants complain.\";\n    }\n    if (s.forceOff) {\n        line2 = \"Comfort: outside-hours policy overrides comfort actuation; devices stay off.\";\n    }\n\n    let line3 = \"Energy: estimated savings indicator — \" + (s.estimatedEnergySaved || \"n/a\") + \".\";\n    if (!s.light && !s.fan) {\n        line3 = \"Energy: no active HVAC lighting loads — good standby efficiency.\";\n    } else {\n        line3 = \"Energy: loads are active; align usage with occupancy and schedule to save energy.\";\n    }\n\n    let line4 = \"Action: keep AUTO mode and monitor the dashboard trends.\";\n    if (s.afterHoursAlert && s.motion) {\n        line1 = \"After-hours alert: motion detected while the room should be vacant.\";\n        line4 = \"Action: investigate possible intrusion or unauthorized access after hours.\";\n    }\n    if (s.forceOff) {\n        line4 = \"Action: do not force devices on outside college hours unless policy permits.\";\n    }\n    if (s.mlAnomaly) {\n        line4 = line4 + \" ML reports a cooling-efficiency anomaly — check fan and temperature rise.\";\n    }\n    if (s.highTempWarning && /EMERGENCY|critically|critical/i.test(s.highTempWarning)) {\n        line2 = \"Comfort: CRITICAL high temperature — safety risk.\";\n        line4 = \"Action: immediate environmental check; reduce heat sources and escalate if needed.\";\n    }\n\n    return [line1, line2, line3, line4].join(\"\\n\");\n}\n\nconst fallbackText = buildFallback(state);\nmsg._fallbackSummary = fallbackText;\n\nconst systemPrompt = \"You are an AI assistant for a smart classroom automation system.\\n\" +\n    \"Given the latest classroom telemetry, schedule state, and ML insight, return a short professional response in exactly 4 lines:\\n\" +\n    \"1. Classroom status\\n\" +\n    \"2. Comfort status\\n\" +\n    \"3. Energy efficiency observation\\n\" +\n    \"4. Recommended action\\n\" +\n    \"\\n\" +\n    \"Rules:\\n\" +\n    \"- If forceOff=true, clearly say the classroom is outside college hours and devices must remain OFF\\n\" +\n    \"- If afterHoursAlert=true and motion=true, mention possible after-hours intrusion\\n\" +\n    \"- Consider occupancy, light, fan, mode, temperature, threshold, schedule status, ML forecast, and anomaly state if available\\n\" +\n    \"- Keep the answer short, professional, and dashboard-friendly\\n\" +\n    \"- Avoid markdown bullets unless needed\\n\" +\n    \"- Keep each line concise\";\n\nconst userBlock = JSON.stringify(state, null, 2);\n\nmsg._usedModel = model;\nmsg._sourceLabel = \"groq\";\n\nif (!apiKey) {\n    msg.skipGroq = true;\n    msg._prebuiltResponse = {\n        ok: true,\n        summary: fallbackText,\n        generatedAt: isoNow(),\n        model: \"fallback\",\n        source: \"local\"\n    };\n    return msg;\n}\n\nmsg.skipGroq = false;\nmsg._groqChatPayload = {\n    model: model,\n    messages: [\n        { role: \"system\", content: systemPrompt },\n        { role: \"user\", content: \"Latest classroom state (JSON):\\n\" + userBlock }\n    ],\n    temperature: 0.35,\n    max_tokens: 450\n};\n\nreturn msg;",
         "outputs": 1,
         "timeout": 0,
         "noerr": 0,
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 430,
+        "x": 520,
         "y": 1860,
         "wires": [
             [
-                "b62f7d13a9e4c850"
+                "a9c8e7d6b5a40301"
             ]
         ]
     },
@@ -2235,6 +2235,143 @@
         "x": 850,
         "y": 1940,
         "wires": []
+    },
+    {
+        "id": "f0a1b2c3d4e5f678",
+        "type": "function",
+        "z": "51ea9c70bb53699f",
+        "name": "API AI mark HTTP reply",
+        "func": "msg._replyHttp = true;\n// Preserve original req: outbound http request node clears msg.req, which would block http response forever.\nmsg._aiHttpReq = msg.req;\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 300,
+        "y": 1860,
+        "wires": [
+            [
+                "c4b7e19a2d3658f0"
+            ]
+        ]
+    },
+    {
+        "id": "f0a1b2c3d4e5f679",
+        "type": "function",
+        "z": "51ea9c70bb53699f",
+        "name": "API AI mark NR dashboard",
+        "func": "msg._replyHttp = false;\nif (!msg.payload || typeof msg.payload !== \"object\") {\n    msg.payload = {};\n}\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 300,
+        "y": 1400,
+        "wires": [
+            [
+                "c4b7e19a2d3658f0"
+            ]
+        ]
+    },
+    {
+        "id": "a9c8e7d6b5a40301",
+        "type": "switch",
+        "z": "51ea9c70bb53699f",
+        "name": "AI skip Groq?",
+        "property": "skipGroq",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "true"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 2,
+        "x": 740,
+        "y": 1860,
+        "wires": [
+            [
+                "b8c7d6e5f4a30201"
+            ],
+            [
+                "f8e9d0c1b2a38495"
+            ]
+        ]
+    },
+    {
+        "id": "b8c7d6e5f4a30201",
+        "type": "function",
+        "z": "51ea9c70bb53699f",
+        "name": "AI use local prebuilt",
+        "func": "msg.payload = msg._prebuiltResponse;\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 980,
+        "y": 1780,
+        "wires": [
+            [
+                "e5f4a3b2c1d00204"
+            ]
+        ]
+    },
+    {
+        "id": "f8e9d0c1b2a38495",
+        "type": "function",
+        "z": "51ea9c70bb53699f",
+        "name": "API AI Groq native https",
+        "func": "const isoNow = () => new Date().toISOString();\nconst fallback = msg._fallbackSummary || \"Unable to generate AI summary.\";\nconst usedModel = msg._usedModel || \"openai/gpt-oss-20b\";\n\nfunction stripQuotes(k) {\n    let key = typeof k === \"string\" ? k.trim() : \"\";\n    if (key.length >= 2 && ((key.charCodeAt(0) === 34 && key.charCodeAt(key.length - 1) === 34) || (key.charCodeAt(0) === 39 && key.charCodeAt(key.length - 1) === 39))) {\n        key = key.slice(1, -1).trim();\n    }\n    return key;\n}\n\nfunction failPayload() {\n    return {\n        ok: true,\n        summary: fallback,\n        generatedAt: isoNow(),\n        model: \"fallback\",\n        source: \"local\"\n    };\n}\n\nfunction okPayload(text) {\n    return {\n        ok: true,\n        summary: text,\n        generatedAt: isoNow(),\n        model: usedModel,\n        source: \"groq\"\n    };\n}\n\nfunction extractText(raw) {\n    if (!raw || typeof raw !== \"object\") return \"\";\n    const ch = raw.choices;\n    if (Array.isArray(ch) && ch[0] && ch[0].message && typeof ch[0].message.content === \"string\") {\n        return ch[0].message.content.trim();\n    }\n    if (typeof raw.output_text === \"string\" && raw.output_text.trim()) return raw.output_text.trim();\n    return \"\";\n}\n\nconst apiKey = stripQuotes(String(env.get(\"GROQ_API_KEY\") || \"\").trim());\nconst chatPayload = msg._groqChatPayload;\n\nif (!chatPayload || !apiKey) {\n    msg.payload = failPayload();\n    return msg;\n}\n\nconst bodyStr = JSON.stringify(chatPayload);\nconst opts = {\n    hostname: \"api.groq.com\",\n    port: 443,\n    path: \"/openai/v1/chat/completions\",\n    method: \"POST\",\n    headers: {\n        \"Content-Type\": \"application/json\",\n        \"Authorization\": \"Bearer \" + apiKey,\n        \"Content-Length\": Buffer.byteLength(bodyStr, \"utf8\")\n    }\n};\n\ntry {\n    await new Promise((resolve) => {\n        let settled = false;\n        function settle() {\n            if (settled) return;\n            settled = true;\n            resolve();\n        }\n        const req = https.request(opts, (res) => {\n            req.setTimeout(0);\n            let chunks = \"\";\n            res.setEncoding(\"utf8\");\n            res.on(\"data\", (c) => { chunks += c; });\n            res.on(\"end\", () => {\n                let raw = null;\n                try {\n                    raw = JSON.parse(chunks);\n                } catch (e) {\n                    raw = null;\n                }\n                const st = res.statusCode || 0;\n                const text = st >= 200 && st < 300 ? extractText(raw) : \"\";\n                msg.payload = text ? okPayload(text) : failPayload();\n                settle();\n            });\n        });\n        req.setTimeout(26000, () => {\n            req.destroy();\n            if (!settled) {\n                msg.payload = failPayload();\n                settle();\n            }\n        });\n        req.on(\"error\", () => {\n            if (!settled) {\n                msg.payload = failPayload();\n                settle();\n            }\n        });\n        req.write(bodyStr);\n        req.end();\n    });\n} catch (e) {\n    msg.payload = failPayload();\n}\n\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [
+            {
+                "var": "https",
+                "module": "https"
+            }
+        ],
+        "x": 1100,
+        "y": 1920,
+        "wires": [
+            [
+                "e5f4a3b2c1d00204"
+            ]
+        ]
+    },
+    {
+        "id": "e5f4a3b2c1d00204",
+        "type": "function",
+        "z": "51ea9c70bb53699f",
+        "name": "API AI Distribute",
+        "func": "const isoNow = () => new Date().toISOString();\nif (!msg.payload || typeof msg.payload !== \"object\") {\n    msg.payload = {\n        ok: true,\n        summary: msg._fallbackSummary || \"AI summary unavailable.\",\n        generatedAt: isoNow(),\n        model: \"fallback\",\n        source: \"local\"\n    };\n}\n\nconst fp = msg.payload;\nflow.set(\"latestAiReport\", fp);\n\nconst summaryText = typeof fp.summary === \"string\" ? fp.summary : \"\";\nconst uiMsg = { payload: summaryText, topic: \"ai-report\" };\n\nconst reqRef = msg.req || msg._aiHttpReq;\nlet httpMsg = null;\nif (msg._replyHttp === true && reqRef) {\n    httpMsg = RED.util.cloneMessage(msg);\n    httpMsg.req = reqRef;\n    httpMsg.payload = fp;\n    httpMsg.statusCode = 200;\n}\n\nreturn [httpMsg, uiMsg];",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1420,
+        "y": 1860,
+        "wires": [
+            [
+                "b62f7d13a9e4c850"
+            ],
+            [
+                "b63f47ab648da08c"
+            ]
+        ]
     },
     {
         "id": "b355a76964a3c013",

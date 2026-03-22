@@ -45,7 +45,13 @@ Accepts commands like:
 - { "mode": "auto", "tempThreshold": 26.5 }
 
 ## POST /api/ai-report
-Temporary placeholder for Phase C.
+Phase C: Groq **Chat Completions** (`POST /v1/chat/completions`, model from `GROQ_MODEL`, default `openai/gpt-oss-20b`) via a **Function** node using Node **`https`** (26s timeout, `await`) so the `/api/ai-report` request finishes reliably; local rule-based fallback when the key is unset or the call fails. Requires **`functionExternalModules: true`** in Node-RED `settings.js` if your image disables external modules by default. Function nodes read **`GROQ_*` via `env.get(...)`** (not `process.env`, which is unavailable in the Function VM); Docker `-e` / `--env-file` still supplies those values.
+
+**Response (success):** `ok`, `summary` (plain text, typically four lines), `generatedAt` (ISO), `model`, `source` (`groq` or `local`).
+
+**Optional JSON body:** `highQuality`, `demoMode`, or `screenshotMode` — any `true` selects `GROQ_MODEL_HIGH_QUALITY` (default `openai/gpt-oss-120b`) when configured.
+
+Env vars (Node-RED process): `GROQ_API_KEY`, `GROQ_MODEL`, `GROQ_MODEL_HIGH_QUALITY` — see `node-red.env.example`.
 
 ## Local storage bridge (separate process)
 

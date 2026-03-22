@@ -1,2 +1,7 @@
 # Local persisted telemetry (storage-bridge)
 /data/
+
+# Secrets (e.g. Docker --env-file for Node-RED / Groq)
+.env
+groq.env
+*.local.env

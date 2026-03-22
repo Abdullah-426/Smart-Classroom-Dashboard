@@ -1,0 +1,474 @@
+================================================================================
+  SMART CLASSROOM DASHBOARD — PROJECT HISTORY
+  Generated from repository state, docs, and workspace conversation transcripts.
+  Last reviewed against codebase: March 2025 (user session date: 22 Mar 2025).
+================================================================================
+
+TABLE OF CONTENTS
+  1. Project Overview
+  2. Development Journey
+  3. Wokwi + MQTT Setup
+  4. Node-RED Backend History
+  5. Dashboard / Frontend History
+  6. Machine Learning / Smart Logic History
+  7. Phase-by-Phase Progress
+  8. Current Project Status
+  9. Important Files / Components / Flows
+  10. Next Steps
+  11. Summary Snapshot
+
+
+--------------------------------------------------------------------------------
+1. PROJECT OVERVIEW
+--------------------------------------------------------------------------------
+
+What the project is
+  A “Smart Classroom” IoT demonstration: a simulated classroom (Wokwi) publishes
+  sensor and actuator state over MQTT; Node-RED ingests telemetry, runs
+  scheduling, analytics, and lightweight ML-style prediction, persists selected
+  data via a local HTTP “storage bridge,” and exposes REST-style HTTP endpoints
+  for a separate React dashboard. The dashboard shows live status, controls,
+  trends, ML metrics, alerts, schedule state, storage health, and pipeline
+  connectivity.
+
+Core objective
+  Provide an end-to-end smart-building style monitoring and control loop:
+  telemetry in, rules and intelligence in Node-RED, commands back to the
+  simulator, with a modern web UI that does not depend on the legacy Node-RED
+  Dashboard UI for day-to-day use.
+
+Main technologies used
+  • Wokwi + Arduino-style firmware (simulation) — MQTT client
+  • MQTT broker: EMQX public (broker.emqx.io) in the exported flow
+  • Node-RED — @flowfuse/node-red-dashboard (legacy UI still in flow) + HTTP
+    nodes for /api/*
+  • Node.js storage bridge — plain `http` server (`storage-bridge.mjs`, port 4050)
+  • Frontend — Vite, React, TypeScript, Tailwind CSS, Recharts (temperature trend)
+  • Local persistence — JSONL telemetry, JSON files for sessions, bridge state,
+    downtime (`data/`, gitignored)
+
+Overall architecture
+  Wokwi → MQTT (telemetry topic) → Node-RED (enrich, analytics, ML, schedule)
+       → MQTT (command topic) → Wokwi
+  Node-RED → POST http://host.docker.internal:4050/ingest (or 127.0.0.1 on host)
+       → storage-bridge → data/telemetry.jsonl + occupancy-sessions + state
+  Browser → Vite dev server → proxy `/api` → Node-RED :1880
+         → proxy `/api/storage` → storage-bridge :4050
+  Dashboard polls Node-RED and storage roughly every 1 second (`DASHBOARD_POLL_MS`).
+
+
+--------------------------------------------------------------------------------
+2. DEVELOPMENT JOURNEY
+--------------------------------------------------------------------------------
+
+How the project started
+  The system began as a Node-RED–centric Smart Classroom flow: MQTT in/out,
+  dashboard widgets (Status, Controls, Analytics, ML, AI groups), schedule
+  checker, occupancy logic, energy estimate, high-temperature warning, and an
+  ML predictor path. Wokwi provided the physical simulation and MQTT payloads.
+
+Initial setup steps (current documented run path)
+  • One-time: `npm install` at repo root (for storage bridge + `dev:all`).
+  • Each session: Docker Desktop → Node-RED → import/deploy `all_flows_edit.json`
+    if needed → `npm run dev:all` (bridge + Vite) → start Wokwi.
+  • See `RUN-STEPS.txt` for POST URLs (`/ingest`, downtime tick) and
+    `CLASSROOM_TIMEZONE` note.
+
+Major milestones
+  A) Separate modern frontend: React + Tailwind dashboard under `frontend/`,
+     typed API layer, mock fallbacks, card layout, dark/light theme.
+  B) Node-RED extended as HTTP backend: GET telemetry, summary, ML; POST command,
+     ai-report placeholder; context keys (`latestTelemetry`, `latestDashboardSummary`,
+     `latestMl`, etc.).
+  C) Hardening: defensive normalization for partial API payloads (alerts array,
+     numeric telemetry) to stop runtime crashes against live Node-RED.
+  D) Controls fix: Wokwi treats `forceOff` as a hard override; frontend commands
+     now clear `forceOff` / `afterHoursAlert` when sending manual/AUTO/preset so
+     lights/fan can turn on outside the schedule window when the user commands it.
+  E) Live status UI: Status card shows explicit Light/Fan ON/OFF indicators
+     (earlier gap after API integration).
+  F) Storage bridge: `storage-bridge.mjs` for JSONL ingest, occupancy sessions,
+     downtime persistence, temperature trend API with time windows, clear/reset.
+  G) Pipeline freshness: `serverTimeMs` + `lastWokwiMqttMs` on telemetry API;
+     Schmitt + two-poll “dead” confirmation on the frontend; aligned downtime
+     tick logic in Node-RED; API Get Telemetry fixed to avoid spurious null
+     `lastWokwiMqttMs` (flicker fix).
+  H) Temperature trend: historic windows (1m, 5m, 10m, 1h, 1d, 1w, 1mo),
+     merge with live edge, `null` points for gaps/disconnect, clear-storage
+     suppress-until-live, gap insertion for sparse JSONL (`TREND_GAP_BREAK_MS`).
+  I) Schedule timezone: Docker/UTC vs user wall clock fixed by sending browser
+     IANA `classroomTz` on schedule APIs and using `Intl` in Node-RED (with
+     `CLASSROOM_TIMEZONE` env fallback).
+  J) Header “Updated” time aligned with `serverLocalTime` from schedule API
+     (same wall clock as schedule checker, not browser-only).
+  K) Storage bridge `subsampleRows` edge case (limit 1) and cold-start pipeline
+     ref initialization; downtime tick streak matching frontend.
+
+Important design / architecture decisions (and why)
+  • Node-RED remains the logic engine — avoids duplicating rules in the browser;
+    the UI is a thin polling client.
+  • HTTP APIs instead of browser MQTT — simpler CORS/security story and matches
+    course tooling.
+  • Separate storage bridge — durable telemetry and occupancy without bloating
+    Node-RED context; Node-RED only POSTs compact ingest bodies.
+  • `pipelineLive` on ingest (`Prepare storage POST`) — skips JSONL writes when
+    MQTT gap exceeds `STORAGE_GAP_OK_MS` (10000 ms) so stale bursts are not
+    persisted as if live.
+  • Two debounced “live” paths: header/downtime use 4s / 7s; gauge/chart line use
+    4s / 6s — slightly different on purpose (documented in code comments).
+  • Schedule uses browser timezone when the dashboard is open — fixes “8 PM local
+    still inside 08–18 UTC” confusion in Docker.
+
+
+--------------------------------------------------------------------------------
+3. WOKWI + MQTT SETUP
+--------------------------------------------------------------------------------
+
+Topics (from `docs/mqtt-topics.txt` and flow)
+  • Telemetry:  smartclass/demo01/telemetry
+  • Command:    smartclass/demo01/command
+  • Status:     smartclass/demo01/status (noted in docs; command/telemetry are
+                the primary integration paths in the flow)
+
+Payload structure (telemetry — see `docs/sample-telemetry.json`)
+  Fields include: temperature, motion, occupied, light, fan, mode, forceOff,
+  afterHoursAlert, tempThreshold (numbers 0/1 for light/fan in samples).
+
+Command payloads (see `docs/sample-commands.json`)
+  JSON objects published to the command topic, e.g. mode, light, fan,
+  tempThreshold; schedule checker publishes forceOff / afterHoursAlert.
+
+How telemetry and commands flow
+  1) Wokwi publishes JSON on telemetry topic.
+  2) Node-RED parses JSON → **Enrich Telemetry** updates `flow.latestTelemetry`,
+     builds dashboard summary fields, alert list, sets `flow.lastWokwiMqttMs`.
+  3) Branches fan out to dashboard UI nodes, analytics, ML, storage prep, etc.
+  4) **Prepare storage POST** builds body with `pipelineLive` from MQTT gap.
+  5) HTTP POST to storage bridge `/ingest`.
+  6) Commands: dashboard buttons → `POST /api/command` → stringify → existing
+     **mqtt out** on `smartclass/demo01/command`.
+
+How Wokwi fits
+  Wokwi is the simulated plant: it publishes telemetry and applies command JSON
+  (including `forceOff`, which forces light and fan off regardless of mode).
+
+
+--------------------------------------------------------------------------------
+4. NODE-RED BACKEND HISTORY
+--------------------------------------------------------------------------------
+
+Flow evolution
+  • Original: FlowFuse Node-RED Dashboard tab “Smart Classroom” with groups
+    Status, Controls, Analytics, ML, AI — all driven from MQTT + function nodes.
+  • Evolution: Same tab augmented with parallel **HTTP In** routes under `/api/*`
+    reading/writing flow context and reusing the MQTT command output node.
+  • Current export: `all_flows_edit.json` (single main tab + ui-base + mqtt broker
+    config). `backend-reference/main_flow.json` exists as reference snapshot.
+
+Important nodes / groups (non-exhaustive but representative)
+  • MQTT in → JSON → **Enrich Telemetry** (core fan-out)
+  • **Prepare storage POST** → **POST storage bridge** (URL comment for Docker)
+  • **Downtime tick 1s** inject → **Build downtime tick POST** → **POST downtime tick**
+  • Dashboard widgets: Room Status, Light/Fan/Mode, College Hours, Alerts,
+    Temperature Trend, controls (AUTO, manual light/fan, preset), Schedule Checker,
+    Toggle Schedule, Occupancy Timer/Sessions, Estimated Energy Saved,
+    High Temp Warning, ML ui-text, AI ui-text/button (still in flow)
+  • **ML Predictor** (function, 2 outputs) → UI + **ML Assist Switch** path
+  • **Anomaly Switch** → **Anomaly Alert Formatter** → **ML Popup** (ui-notification)
+  • HTTP: GET telemetry, dashboard-summary, ml; POST command, ai-report;
+    GET/POST schedule-state/toggle
+
+Current flow structure (logical)
+  Telemetry path: MQTT → enrich → [UI, analytics, ML, storage, occupancy, energy,
+  high temp, schedule-related context consumers].
+  API path: HTTP in → function (context read/write) → JSON → HTTP response.
+  Command path: HTTP POST → parse/normalize → MQTT out + success JSON response.
+
+Telemetry processing pipeline
+  **Enrich Telemetry** normalizes booleans, stores `latestTelemetry`, derives
+  room/light/fan/mode text, college hours text from schedule flag + forceOff,
+  alert strings (after-hours motion, high temp, etc.), and refreshes
+  `latestDashboardSummary` (merging in timer/session placeholders from flow).
+
+Analytics pipeline
+  Separate function nodes (Occupancy Timer, Occupancy Sessions, Estimated Energy
+  Saved, High Temp Warning) update flow context keys that **API Get Dashboard
+  Summary** merges into the HTTP response.
+
+ML pipeline
+  **ML Predictor** runs on enriched telemetry messages; writes `flow.latestMl`
+  and optional assist command branch. **GET /api/ml** returns `latestMl`.
+
+AI placeholder / integration pipeline
+  **POST /api/ai-report** → **API AI Report Placeholder** returns
+  `{ ok: true, message: "AI report generation placeholder for Phase C" }`.
+  The React **AiReportCard** expects `{ summary, generatedAt }` — see Current
+  Status for the mismatch.
+
+Schedule checker / automation
+  **Schedule Checker** inject (periodic) and **Toggle Schedule Checker** publish
+  MQTT commands with `forceOff` and `afterHoursAlert` derived from
+  08:00–18:00 in `flow.scheduleTimeZone` (set from `classroomTz` query/body) or
+  `CLASSROOM_TIMEZONE` or Node local time.
+  When schedule is disabled, commands use `forceOff: false`, `afterHoursAlert: false`.
+
+Alerts logic
+  Built in **Enrich Telemetry** into `alerts` array on the dashboard summary;
+  high-temperature copy also surfaces via **High Temp Warning** context.
+
+Command publishing
+  **POST /api/command** → normalizer → existing MQTT out to `smartclass/demo01/command`.
+  Dashboard UI buttons in Node-RED still wired in parallel to the same command path.
+
+HTTP/API for frontend integration
+  • GET `/api/telemetry` — **API Get Telemetry** adds `serverTimeMs`, `lastWokwiMqttMs`
+  • GET `/api/dashboard-summary` — merges summary + recomputes `collegeHours` from
+    schedule + latest telemetry forceOff for consistency after HTTP toggle
+  • GET `/api/ml`
+  • POST `/api/command`
+  • POST `/api/ai-report` (placeholder)
+  • GET `/api/schedule-state?classroomTz=...`
+  • POST `/api/schedule-toggle` with JSON body including `classroomTz`
+
+Notification / anomaly logic
+  Node-RED **ML Popup** (dashboard notification) on anomaly branch; the separate
+  React app uses **AlertsBanner** fed from summary alerts + high temp warning text.
+
+
+--------------------------------------------------------------------------------
+5. DASHBOARD / FRONTEND HISTORY
+--------------------------------------------------------------------------------
+
+Original Node-RED dashboard work
+  FlowFuse dashboard page “Smart Classroom” with themed groups — the canonical
+  place all widgets and ML/AI UI were first built.
+
+UI improvements attempted
+  User requested a premium IoT-style UI; the Node-RED dashboard remained in the
+  flow for compatibility but a dedicated SPA was built for primary use.
+
+Why the approach changed
+  Node-RED dashboard is fast to prototype but limited for custom layout, theming,
+  and course demos wanting a “product” look. The React app provides responsive
+  cards, consistent typography, and easier iteration.
+
+Transition to separate modern frontend
+  New `frontend/` Vite app: services layer (`api.ts`, `storageApi.ts`), hooks,
+  typed models, mock data, Tailwind, dark mode class strategy.
+
+Current frontend structure (high level)
+  • `App.tsx` — layout, refresh, command/schedule handlers, grid of cards
+  • `hooks/useDashboardData.ts` — parallel fetch, merge occupancy, trend window,
+    pipeline + gauge debouncing, clear storage + downtime reset
+  • `components/dashboard/*` — HeaderBar, AlertsBanner, StatusCard, TemperatureCard,
+    SemicircleTemperatureGauge, TemperatureTrendCard, ControlsCard, AnalyticsCard,
+    MlInsightsCard, AiReportCard, StoragePanel
+  • `utils/temperatureTrendSeries.ts` — historic+live merge, gap nulls
+  • `constants/pipeline.ts`, `constants/temperatureTrend.ts`
+
+Major UI sections
+  Header (title, theme toggle, pipeline dot, refresh, last updated time),
+  alerts strip, status + temperature + controls + analytics in grid,
+  full-width temperature trend with range buttons, ML card, AI card, storage panel.
+
+Theme and styling
+  Dark-first with light option; slate/emerald/amber/violet accents; card-based
+  layout; Lucide icons.
+
+Current frontend status
+  Polished and aligned with live APIs + storage; 1 s polling (note: `frontend/README.md`
+  still mentions 2.5 s in places — code uses 1000 ms). Build verified in-session
+  after changes.
+
+
+--------------------------------------------------------------------------------
+6. MACHINE LEARNING / SMART LOGIC HISTORY
+--------------------------------------------------------------------------------
+
+What was built
+  **ML Predictor** is a Node-RED function (not an external ML runtime). It keeps
+  a rolling context model: history (up to 60 samples), EMA, forecast queue,
+  error list for MAE, timestamps for assist cooldown and forecast sampling.
+
+Inputs used
+  temperature, occupied, light, fan, tempThreshold, forceOff (for assist gating).
+
+Forecast logic
+  Linear regression on last up to 12 points (time in minutes vs temperature);
+  2-minute-ahead extrapolation; blended 60/40 with EMA; occupancy/light/fan
+  feature tweaks; clamp delta vs current temp.
+
+Confidence logic
+  Combines sample count factor (up to 12) and inverse residual scale from fit.
+
+MAE / evaluation logic
+  When past forecasts mature (`due`), absolute error vs actual is recorded;
+  MAE is mean of up to last 20 errors.
+
+Assist logic
+  If occupied, not forceOff, confidence ≥ 0.55, predicted > threshold + 0.3,
+  and 180 s since last assist → suggests pre-cool via **ML Assist Command**
+  (auto mode + suggested threshold in payload).
+
+Anomaly logic
+  Heuristic: fan on and positive slope above threshold → anomaly flag; feeds
+  **Anomaly Alert Formatter** with 30 s popup cooldown.
+
+Cooldown / popup logic
+  Assist: 180 s between assists. Anomaly notification: 30 s minimum between
+  popups in formatter context.
+
+Complete vs optional polish
+  Complete: predictor, API exposure, UI card, assist path, anomaly popup in
+  Node-RED dashboard. Optional polish: richer models, training pipeline,
+  surfacing ML popup equivalent inside the React app (currently ML anomalies
+  show as metrics/badge, not Node-RED ui-notification).
+
+
+--------------------------------------------------------------------------------
+7. PHASE-BY-PHASE PROGRESS
+--------------------------------------------------------------------------------
+
+Phase A (foundation — inferred from project shape)
+  Complete: Wokwi + MQTT topics, Node-RED ingestion, basic automation, original
+  dashboard widgets, command path.
+
+Phase B (integration + modern dashboard + persistence)
+  Essentially complete: HTTP APIs on Node-RED, React dashboard, storage bridge,
+  telemetry JSONL + occupancy + downtime, schedule APIs with timezone, pipeline
+  connectivity UX, temperature history windows, controls working with `forceOff`
+  semantics documented and handled.
+
+Phase C (current focus — AI)
+  Goal: real AI report generation. Current: **POST /api/ai-report** is a stub;
+  frontend **Generate AI Report** calls the endpoint and displays `summary` —
+  live Node-RED response shape may not match (placeholder returns `message`).
+  Node-RED **AI** dashboard group still has placeholder/debug-style wiring.
+  Remaining: implement backend (LLM or templated NLP), return `summary` +
+  `generatedAt`, optional auth/keys, and align with `AiReportPayload`.
+
+
+--------------------------------------------------------------------------------
+8. CURRENT PROJECT STATUS
+--------------------------------------------------------------------------------
+
+What works end-to-end (when stack is running per RUN-STEPS)
+  • Wokwi → MQTT → Node-RED telemetry → enriched summary + ML update
+  • React dashboard polls APIs and storage; shows status, controls, trend, ML,
+    alerts, schedule state, storage stats
+  • Commands from UI → MQTT → Wokwi (with `forceOff` override understood)
+  • Storage ingest when pipeline live; trend APIs for time ranges; clear storage
+  • Downtime accumulation + reset; schedule toggle + timezone-aware window
+
+Current dashboard state
+  Production-style UI complete; trend ranges including 5m/10m; gauge shows NA when
+  line not live; line breaks on null segments while time advances.
+
+Current backend state
+  `all_flows_edit.json` is the source of truth for import; must be deployed in
+  Node-RED to match repo (especially **API Get Telemetry**, **Build downtime tick
+  POST**, schedule functions).
+
+Current AI integration state
+  Placeholder only on Node-RED; frontend falls back to mock report on request
+  failure but successful stub JSON may not populate `summary` as intended.
+
+Known issues / rough edges
+  • AI API JSON shape vs `AiReportCard` expectation (`summary` vs `message`).
+  • `docs/backend-api-plan.md` hysteresis notes for chart (8s/22s) are outdated;
+    implementation uses `pipeline.ts` constants and debouncing (4s/7s pipeline,
+    4s/6s gauge/chart with two-poll dead confirm).
+  • `frontend/README.md` poll interval text vs `DASHBOARD_POLL_MS` (1 s).
+  • Gauge may show NA slightly before header turns red (by design: 6s vs 7s).
+  • Full `data/` directory is gitignored — clones start empty until ingest.
+  • **Clear storage** (bridge `/api/storage/clear`) removes telemetry JSONL, occupancy
+    sessions, and bridge state; it does **not** reset `downtime.json` (total downtime
+    is intentional separate persistence).
+
+Readiness for demo
+  High for classroom IoT narrative (live telemetry, control, schedule, ML card,
+  persistence, downtime). AI story should be described as “Phase C / placeholder”
+  unless backend response is fixed to match the UI contract.
+
+
+--------------------------------------------------------------------------------
+9. IMPORTANT FILES / COMPONENTS / FLOWS
+--------------------------------------------------------------------------------
+
+Key project files
+  • `all_flows_edit.json` — Node-RED export (import + Deploy)
+  • `storage-bridge.mjs` — HTTP server port 4050, ingest + storage APIs
+  • `package.json` — `dev:all`, `storage`, `storage:loopback`
+  • `RUN-STEPS.txt` — operator checklist
+  • `docs/PROJECT_LAYOUT.md`, `docs/storage-bridge.md`, `docs/VERIFICATION.md`,
+    `docs/backend-api-plan.md`, `docs/mqtt-topics.txt`, sample JSON under `docs/`
+  • `data/` — `telemetry.jsonl`, `occupancy-sessions.json`, `bridge-state.json`,
+    `downtime.json` (created at runtime)
+
+Key frontend files
+  • `frontend/src/App.tsx`
+  • `frontend/src/hooks/useDashboardData.ts`
+  • `frontend/src/services/api.ts`, `storageApi.ts`, `mockData.ts`
+  • `frontend/src/types/dashboard.ts`
+  • `frontend/src/constants/pipeline.ts`, `temperatureTrend.ts`
+  • `frontend/vite.config.ts` — proxies `/api` → :1880, `/api/storage` → :4050
+
+Key Node-RED functions / endpoints
+  • **Enrich Telemetry**, **Prepare storage POST**, **Build downtime tick POST**
+  • **API Get Telemetry**, **API Get Dashboard Summary**, **API Get ML**
+  • **API Command Normalizer** + MQTT out
+  • **API Get Schedule State**, **API Toggle Schedule**
+  • **ML Predictor**, **ML Assist Command**, anomaly popup chain
+  • **API AI Report Placeholder**
+
+Environment variables
+  • `STORAGE_BRIDGE_PORT` (default 4050), `STORAGE_BRIDGE_HOST` (0.0.0.0 for Docker)
+  • `STORAGE_BRIDGE_LOG_INGEST=1` optional
+  • `CLASSROOM_TIMEZONE` — IANA zone when dashboard is not setting `classroomTz`
+  • Frontend: `VITE_API_BASE_URL`, `VITE_USE_MOCK` (see `.env.example` if present)
+
+Important MQTT topics
+  `smartclass/demo01/telemetry`, `smartclass/demo01/command` (and `.../status` in docs)
+
+AI / model
+  No external LLM is wired in repo; Phase C placeholder only.
+
+
+--------------------------------------------------------------------------------
+10. NEXT STEPS
+--------------------------------------------------------------------------------
+
+Immediate
+  • Implement **POST /api/ai-report** to return `{ summary, generatedAt }` (or
+    update the React client to map `message` → summary).
+  • Re-import `all_flows_edit.json` after any flow edit; restart storage bridge
+    after `storage-bridge.mjs` changes.
+  • Optionally refresh `docs/backend-api-plan.md` and `frontend/README.md` to
+    match 1 s polling and current Schmitt constants.
+
+Later / optional
+  • WebSocket or SSE for lower-latency updates
+  • Authenticated API or local-only binding for production
+  • Export bundled build + static serve recipe
+  • Deeper ML (Python sidecar, real training)
+
+
+--------------------------------------------------------------------------------
+11. SUMMARY SNAPSHOT
+--------------------------------------------------------------------------------
+
+The Smart Classroom project is a working demo stack: Wokwi publishes MQTT
+telemetry; Node-RED enriches it, runs schedule logic (timezone-aware via the
+browser or `CLASSROOM_TIMEZONE`), analytics, and an in-flow ML predictor with
+assist and anomaly branches; it POSTs live samples to a Node storage bridge
+that maintains JSONL history, occupancy sessions, and downtime; and a React +
+Tailwind dashboard polls Node-RED and the bridge for a polished, dark-first UI
+with controls, trends (multiple time windows, gap-aware chart), pipeline health,
+and ML metrics. The legacy Node-RED Dashboard UI remains in the exported flow
+but the product-style experience is the separate frontend. Phase B–level
+integration is effectively done; Phase C centers on replacing the AI HTTP
+placeholder with a real report contract and any chosen model/service.
+
+================================================================================
+END OF PROJECT HISTORY
+================================================================================
