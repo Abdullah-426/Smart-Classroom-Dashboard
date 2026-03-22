@@ -1,11 +1,14 @@
 import { LineChart } from "lucide-react";
 import { useMemo } from "react";
 import { CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis, AreaChart, Area } from "recharts";
+import { TREND_RANGE_OPTIONS, trendRangeLongScale, type TrendRangeId } from "../../constants/temperatureTrend";
 import type { TrendPoint } from "../../types/dashboard";
 import { Card } from "../ui/Card";
 
 interface TemperatureTrendCardProps {
   trend: TrendPoint[];
+  rangeId: TrendRangeId;
+  onRangeChange: (id: TrendRangeId) => void;
 }
 
 /** Recharts needs strictly increasing numeric X; duplicate `time` strings caused hairline gaps. */
@@ -22,16 +25,33 @@ function chartDataWithMonotonicX(pts: TrendPoint[]): TrendPoint[] {
   });
 }
 
-export function TemperatureTrendCard({ trend }: TemperatureTrendCardProps) {
+export function TemperatureTrendCard({ trend, rangeId, onRangeChange }: TemperatureTrendCardProps) {
   const data = useMemo(() => chartDataWithMonotonicX(trend), [trend]);
+  const longScale = trendRangeLongScale(rangeId);
 
   return (
     <Card
       title="Temperature Trend"
-      subtitle="~1s poll + file history; chart gaps only after ~22s MQTT silence (wider than status dot)"
+      subtitle="Storage-backed window + live edge; gaps when samples are missing or more than 20s apart"
       icon={<LineChart size={18} />}
       className="lg:col-span-2"
     >
+      <div className="mb-3 flex flex-wrap gap-1.5">
+        {TREND_RANGE_OPTIONS.map((o) => (
+          <button
+            key={o.id}
+            type="button"
+            onClick={() => onRangeChange(o.id)}
+            className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
+              rangeId === o.id
+                ? "bg-sky-600 text-white dark:bg-sky-500"
+                : "bg-slate-200/90 text-slate-700 hover:bg-slate-300/90 dark:bg-slate-700/80 dark:text-slate-200 dark:hover:bg-slate-600/80"
+            }`}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
       <div className="h-64">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={data}>
@@ -49,15 +69,22 @@ export function TemperatureTrendCard({ trend }: TemperatureTrendCardProps) {
               scale="time"
               tick={{ fontSize: 11 }}
               tickMargin={8}
-              tickFormatter={(v) =>
-                typeof v === "number" && Number.isFinite(v)
-                  ? new Date(v).toLocaleTimeString([], {
+              tickFormatter={(v) => {
+                if (typeof v !== "number" || !Number.isFinite(v)) return "";
+                const d = new Date(v);
+                return longScale
+                  ? d.toLocaleString([], {
+                      month: "short",
+                      day: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })
+                  : d.toLocaleTimeString([], {
                       hour: "2-digit",
                       minute: "2-digit",
                       second: "2-digit",
-                    })
-                  : ""
-              }
+                    });
+              }}
             />
             <YAxis tick={{ fontSize: 11 }} width={30} />
             <Tooltip

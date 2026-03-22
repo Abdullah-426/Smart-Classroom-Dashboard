@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { dashboardApi } from "../services/api";
 import { storageApi, type StorageInfoResponse } from "../services/storageApi";
 import { mergeOccupancySessionLists, occupancySessionKey } from "../utils/mergeOccupancySessions";
@@ -14,14 +14,16 @@ import type {
   TrendPoint,
 } from "../types/dashboard";
 import {
-  CHART_LINE_DEAD_MIN_AGE_MS,
-  CHART_LINE_LIVE_MAX_AGE_MS,
   DASHBOARD_POLL_MS,
+  GAUGE_CHART_DEAD_MIN_AGE_MS,
+  GAUGE_CHART_LIVE_MAX_AGE_MS,
   PIPELINE_DEAD_MIN_AGE_MS,
   PIPELINE_LIVE_MAX_AGE_MS,
 } from "../constants/pipeline";
-/** Live chart + persisted tail (storage-bridge). */
-const MAX_TREND_POINTS = 200;
+import { trendRangeMs, type TrendRangeId } from "../constants/temperatureTrend";
+import { mergeHistoricWithLive } from "../utils/temperatureTrendSeries";
+
+const TREND_FETCH_LIMIT = 12_000;
 
 /** Milliseconds since last MQTT (Node-RED clock); `null` if unknown. */
 function telemetryAgeMs(t: TelemetryPayload): number | null {
@@ -36,37 +38,52 @@ function telemetryAgeMs(t: TelemetryPayload): number | null {
   return age;
 }
 
-/** Schmitt-style: no flicker in the (LIVE_MAX, DEAD_MIN] band. */
-function nextPipelineStable(age: number | null, prevStable: boolean): boolean {
-  if (age === null) return false;
-  if (age <= PIPELINE_LIVE_MAX_AGE_MS) return true;
-  if (age > PIPELINE_DEAD_MIN_AGE_MS) return false;
+/**
+ * Schmitt band + two-poll confirmation above DEAD before flipping to not-live (kills single-sample spikes).
+ * `age === null` (missing lastWokwiMqttMs on one HTTP response) keeps previous — real outages use large finite age.
+ */
+function pipelineStableFromAge(
+  age: number | null,
+  prevStable: boolean,
+  aboveDeadStreak: MutableRefObject<number>,
+): boolean {
+  if (age === null) return prevStable;
+  if (age <= PIPELINE_LIVE_MAX_AGE_MS) {
+    aboveDeadStreak.current = 0;
+    return true;
+  }
+  if (age > PIPELINE_DEAD_MIN_AGE_MS) {
+    if (!prevStable) {
+      aboveDeadStreak.current = 0;
+      return false;
+    }
+    aboveDeadStreak.current += 1;
+    return aboveDeadStreak.current >= 2 ? false : true;
+  }
+  aboveDeadStreak.current = 0;
   return prevStable;
 }
 
-/**
- * Chart-only Schmitt: ignore single-poll spikes in MQTT age and missing timestamps.
- * `age === null` → hold previous (avoids hairline gaps when `lastWokwiMqttMs` blips).
- */
-function nextChartLineLive(age: number | null, prev: boolean): boolean {
-  if (age === null) return prev;
-  if (age <= CHART_LINE_LIVE_MAX_AGE_MS) return true;
-  if (age >= CHART_LINE_DEAD_MIN_AGE_MS) return false;
-  return prev;
-}
-
-/** Ensure strictly increasing `atMs` for Recharts (history + live, multi-clock safe). */
-function normalizeTrendAtMs(pts: TrendPoint[]): TrendPoint[] {
-  let lastAt = -Infinity;
-  return pts.map((p) => {
-    let atMs = p.atMs;
-    if (typeof atMs !== "number" || !Number.isFinite(atMs)) {
-      atMs = lastAt > 0 ? lastAt + 1000 : Date.now();
+function gaugeChartLiveFromAge(
+  age: number | null,
+  prevLive: boolean,
+  aboveDeadStreak: MutableRefObject<number>,
+): boolean {
+  if (age === null) return prevLive;
+  if (age <= GAUGE_CHART_LIVE_MAX_AGE_MS) {
+    aboveDeadStreak.current = 0;
+    return true;
+  }
+  if (age >= GAUGE_CHART_DEAD_MIN_AGE_MS) {
+    if (!prevLive) {
+      aboveDeadStreak.current = 0;
+      return false;
     }
-    if (atMs <= lastAt) atMs = lastAt + 1;
-    lastAt = atMs;
-    return { ...p, atMs };
-  });
+    aboveDeadStreak.current += 1;
+    return aboveDeadStreak.current >= 2 ? false : true;
+  }
+  aboveDeadStreak.current = 0;
+  return prevLive;
 }
 
 function asNumber(value: unknown, fallback: number): number {
@@ -153,37 +170,12 @@ function normalizeMl(input: MlPayload): MlPayload {
   };
 }
 
-/**
- * Append a point; use `temperature: null` when chart Schmitt says “dead”.
- * `atMs` uses server clock when available so live points align with file history.
- */
-function appendTrendPoint(
-  prev: TrendPoint[],
-  temperature: number,
-  pipelineLive: boolean,
-  serverTimeMs: number | undefined,
-): TrendPoint[] {
-  const atBase =
-    typeof serverTimeMs === "number" && Number.isFinite(serverTimeMs) ? serverTimeMs : Date.now();
-  const lastAt = prev.length ? prev[prev.length - 1].atMs : undefined;
-  let atMs = atBase;
-  if (typeof lastAt === "number" && atMs <= lastAt) atMs = lastAt + 1;
-
-  const time = new Date(atMs).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-  const point: TrendPoint = pipelineLive
-    ? { time, atMs, temperature }
-    : { time, atMs, temperature: null };
-  return [...prev, point].slice(-MAX_TREND_POINTS);
-}
-
 export function useDashboardData() {
   const [bundle, setBundle] = useState<DashboardBundle | null>(null);
   const bundleRef = useRef<DashboardBundle | null>(null);
-  const trendResetRef = useRef(false);
+  /** After clear storage: keep chart empty until Wokwi/MQTT is live again. */
+  const suppressTrendUntilLiveRef = useRef(false);
+  const [trendRangeId, setTrendRangeId] = useState<TrendRangeId>("1h");
   const [scheduleState, setScheduleState] = useState<ScheduleStateResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -199,18 +191,16 @@ export function useDashboardData() {
   const [occupancyCurrentSession, setOccupancyCurrentSession] = useState<CurrentOccupancySession | null>(null);
   /** Hysteresis for green/red + chart (must survive across polls). */
   const pipelineStableRef = useRef(true);
-  /** Wider Schmitt so the trend chart does not flicker on brief MQTT jitter. */
-  const chartLineLiveRef = useRef(true);
+  /** Count consecutive polls with MQTT age past DEAD while still showing live (need 2 before red). */
+  const pipelineAboveDeadStreakRef = useRef(0);
+  /** Schmitt for gauge + temperature line segment (~4s / ~6s on MQTT age). */
+  const chartLineLiveRef = useRef(false);
+  const gaugeAboveDeadStreakRef = useRef(0);
+  /** True when the trend chart is drawing a line (Wokwi / MQTT live); gauge uses real °C only then. */
+  const [trendLineLive, setTrendLineLive] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const needTrendSeed = trendResetRef.current || !bundleRef.current?.trend?.length;
-      let trendSeed: TrendPoint[] = [];
-      if (needTrendSeed) {
-        const raw = await storageApi.getTrendPoints(MAX_TREND_POINTS).catch(() => []);
-        trendSeed = normalizeTrendAtMs(raw);
-      }
-
       const [telemetry, summary, ml, sched, sInfo, occPayload] = await Promise.all([
         dashboardApi.getTelemetry(),
         dashboardApi.getSummary(),
@@ -238,30 +228,45 @@ export function useDashboardData() {
       setScheduleState(sched);
       setStorageInfo(sInfo);
       const age = telemetryAgeMs(safeTelemetry);
-      const stable = nextPipelineStable(age, pipelineStableRef.current);
+      const stable = pipelineStableFromAge(age, pipelineStableRef.current, pipelineAboveDeadStreakRef);
       pipelineStableRef.current = stable;
       setPipelineConnected(stable);
-      const lineLive = nextChartLineLive(age, chartLineLiveRef.current);
+      const lineLive = gaugeChartLiveFromAge(age, chartLineLiveRef.current, gaugeAboveDeadStreakRef);
       chartLineLiveRef.current = lineLive;
-      setBundle((current) => {
-        let baseTrend = current?.trend ?? [];
-        if (trendResetRef.current) {
-          trendResetRef.current = false;
-          baseTrend = trendSeed.length ? trendSeed : [];
-        } else if (!baseTrend.length && trendSeed.length) {
-          baseTrend = trendSeed;
-        }
-        baseTrend = normalizeTrendAtMs(baseTrend);
+      setTrendLineLive(lineLive);
+
+      const holdEmptyAfterClear = suppressTrendUntilLiveRef.current && !lineLive;
+      if (lineLive) {
+        suppressTrendUntilLiveRef.current = false;
+      }
+
+      const serverNow =
+        typeof safeTelemetry.serverTimeMs === "number" && Number.isFinite(safeTelemetry.serverTimeMs)
+          ? safeTelemetry.serverTimeMs
+          : Date.now();
+      const rangeMs = trendRangeMs(trendRangeId);
+      const sinceMs = serverNow - rangeMs;
+
+      let historic: TrendPoint[] = [];
+      if (!holdEmptyAfterClear) {
+        historic = await storageApi.getTrendSince(sinceMs, TREND_FETCH_LIMIT).catch(() => []);
+      }
+
+      const nextTrend = holdEmptyAfterClear
+        ? []
+        : mergeHistoricWithLive(historic, {
+            serverTimeMs: safeTelemetry.serverTimeMs,
+            temperature: safeTelemetry.temperature,
+            lineLive,
+            sinceMs,
+          });
+
+      setBundle(() => {
         const next: DashboardBundle = {
           telemetry: safeTelemetry,
           summary: safeSummary,
           ml: safeMl,
-          trend: appendTrendPoint(
-            baseTrend,
-            safeTelemetry.temperature,
-            lineLive,
-            safeTelemetry.serverTimeMs,
-          ),
+          trend: nextTrend,
         };
         bundleRef.current = next;
         return next;
@@ -273,12 +278,15 @@ export function useDashboardData() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
       pipelineStableRef.current = false;
+      pipelineAboveDeadStreakRef.current = 0;
       chartLineLiveRef.current = false;
+      gaugeAboveDeadStreakRef.current = 0;
+      setTrendLineLive(false);
       setPipelineConnected(false);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [trendRangeId]);
 
   const clearPersistedStorage = useCallback(async () => {
     try {
@@ -286,7 +294,7 @@ export function useDashboardData() {
     } catch {
       /* Bridge may be stopped; still reset in-memory trend on next load */
     }
-    trendResetRef.current = true;
+    suppressTrendUntilLiveRef.current = true;
     await load();
   }, [load]);
 
@@ -333,6 +341,9 @@ export function useDashboardData() {
 
   return {
     bundle,
+    trendLineLive,
+    trendRangeId,
+    setTrendRangeId,
     scheduleState,
     applyScheduleAfterToggle,
     loading,

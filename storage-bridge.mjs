@@ -269,11 +269,11 @@ function countLinesFile(file) {
   }
 }
 
-function tailJsonlTemperature(limit) {
+function parseTelemetryRows() {
   ensureDir();
   if (!fs.existsSync(TELEMETRY_FILE)) return [];
   const buf = fs.readFileSync(TELEMETRY_FILE, "utf8");
-  const rows = buf
+  return buf
     .trim()
     .split("\n")
     .filter(Boolean)
@@ -285,22 +285,54 @@ function tailJsonlTemperature(limit) {
       }
     })
     .filter(Boolean);
-  const slice = rows.slice(-Math.max(1, limit));
+}
+
+/** Uniform subsample so very large windows stay bounded. */
+function subsampleRows(rows, maxPoints) {
+  if (rows.length <= maxPoints) return rows;
+  const n = rows.length;
+  const out = [];
+  for (let i = 0; i < maxPoints; i++) {
+    const idx = Math.round((i * (n - 1)) / (maxPoints - 1));
+    out.push(rows[Math.min(idx, n - 1)]);
+  }
+  return out;
+}
+
+function rowsToTrendPoints(rows) {
   let prevAt = 0;
-  return slice.map((r) => {
-    let atMs = typeof r.receivedAt === "number" && Number.isFinite(r.receivedAt) ? r.receivedAt : Date.now();
+  return rows.map((r) => {
+    let atMs = typeof r.receivedAt === "number" && Number.isFinite(r.receivedAt) ? r.receivedAt : prevAt + 1;
     if (atMs <= prevAt) atMs = prevAt + 1;
     prevAt = atMs;
+    const t = r.temperature;
+    const temperature = typeof t === "number" && Number.isFinite(t) ? t : null;
     return {
-      time: new Date(r.receivedAt).toLocaleTimeString([], {
+      time: new Date(atMs).toLocaleTimeString([], {
         hour: "2-digit",
         minute: "2-digit",
         second: "2-digit",
       }),
       atMs,
-      temperature: typeof r.temperature === "number" ? r.temperature : 0,
+      temperature,
     };
   });
+}
+
+function tailJsonlTemperature(limit) {
+  const rows = parseTelemetryRows();
+  const slice = rows.slice(-Math.max(1, limit));
+  return rowsToTrendPoints(slice);
+}
+
+/** All samples with receivedAt >= sinceMs, oldest-first, capped by maxPoints (subsampled if needed). */
+function temperatureTrendSince(sinceMs, maxPoints) {
+  const since = typeof sinceMs === "number" && Number.isFinite(sinceMs) ? sinceMs : 0;
+  const rows = parseTelemetryRows()
+    .filter((r) => typeof r.receivedAt === "number" && r.receivedAt >= since)
+    .sort((a, b) => a.receivedAt - b.receivedAt);
+  const capped = subsampleRows(rows, Math.max(1, maxPoints));
+  return rowsToTrendPoints(capped);
 }
 
 function storageInfo() {
@@ -408,8 +440,17 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && url.pathname === "/api/storage/temperature-trend") {
-      const limit = Math.min(500, Math.max(1, Number(url.searchParams.get("limit")) || 200));
-      const trend = tailJsonlTemperature(limit);
+      const maxCap = 20_000;
+      const sinceRaw = url.searchParams.get("sinceMs");
+      let trend;
+      if (sinceRaw != null && sinceRaw !== "") {
+        const sinceMs = Number(sinceRaw);
+        const limit = Math.min(maxCap, Math.max(1, Number(url.searchParams.get("limit")) || 5000));
+        trend = Number.isFinite(sinceMs) ? temperatureTrendSince(sinceMs, limit) : [];
+      } else {
+        const limit = Math.min(500, Math.max(1, Number(url.searchParams.get("limit")) || 200));
+        trend = tailJsonlTemperature(limit);
+      }
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ ok: true, trend }));
       return;

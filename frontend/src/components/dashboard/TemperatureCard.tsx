@@ -6,11 +6,13 @@ import { SemicircleTemperatureGauge } from "./SemicircleTemperatureGauge";
 interface TemperatureCardProps {
   telemetry: TelemetryPayload;
   trend: TrendPoint[];
+  /** When false, no Wokwi/MQTT line on the trend chart — gauge shows NA and no reading. */
+  trendLineLive: boolean;
 }
 
-export function TemperatureCard({ telemetry, trend }: TemperatureCardProps) {
+export function TemperatureCard({ telemetry, trend, trendLineLive }: TemperatureCardProps) {
   const t = telemetry.temperature;
-  const valid = Number.isFinite(t) && t > -900;
+  const valid = trendLineLive && Number.isFinite(t) && t > -900;
   const threshold = telemetry.tempThreshold;
   const delta = valid ? t - threshold : null;
 
@@ -30,7 +32,7 @@ export function TemperatureCard({ telemetry, trend }: TemperatureCardProps) {
   return (
     <Card title="Temperature" subtitle="Current classroom temperature" icon={<Thermometer size={18} />}>
       <div className="flex flex-col gap-4">
-        <SemicircleTemperatureGauge temperature={telemetry.temperature} />
+        <SemicircleTemperatureGauge temperature={trendLineLive ? telemetry.temperature : null} />
 
         <div className="flex flex-col gap-3">
           <div className="rounded-xl bg-slate-100/90 px-3 py-2.5 text-center dark:bg-slate-800/70">

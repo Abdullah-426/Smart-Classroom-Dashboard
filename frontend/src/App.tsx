@@ -16,6 +16,9 @@ import type { CommandPayload } from "./types/dashboard";
 function App() {
   const {
     bundle,
+    trendLineLive,
+    trendRangeId,
+    setTrendRangeId,
     scheduleState,
     applyScheduleAfterToggle,
     loading,
@@ -92,7 +95,11 @@ function App() {
 
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-4">
         <StatusCard summary={bundle.summary} />
-        <TemperatureCard telemetry={bundle.telemetry} trend={bundle.trend} />
+        <TemperatureCard
+          telemetry={bundle.telemetry}
+          trend={bundle.trend}
+          trendLineLive={trendLineLive}
+        />
         <ControlsCard
           onSendCommand={handleSendCommand}
           onToggleSchedule={handleToggleSchedule}
@@ -106,7 +113,11 @@ function App() {
           storedOccupancySessionKeys={storedOccupancySessionKeys}
           onRefresh={refresh}
         />
-        <TemperatureTrendCard trend={bundle.trend} />
+        <TemperatureTrendCard
+          trend={bundle.trend}
+          rangeId={trendRangeId}
+          onRangeChange={setTrendRangeId}
+        />
         <MlInsightsCard ml={bundle.ml} />
         <AiReportCard />
         <StoragePanel storageInfo={storageInfo} onClearStorage={clearPersistedStorage} />

@@ -46,19 +46,21 @@ function gaugeColor(tempCelsius: number): string {
 }
 
 interface SemicircleTemperatureGaugeProps {
-  /** Celsius; invalid values (e.g. -999) show as no fill */
-  temperature: number;
+  /** Celsius, or `null` when there is no live device reading (empty gauge, “NA”). */
+  temperature: number | null;
   className?: string;
 }
 
 export function SemicircleTemperatureGauge({ temperature, className = "" }: SemicircleTemperatureGaugeProps) {
   const filterId = useId().replace(/:/g, "");
-  const invalid = !Number.isFinite(temperature) || temperature <= -900;
-  const displayTemp = invalid ? null : temperature;
-  const pct = invalid ? 0 : clamp((temperature - GAUGE_MIN) / (GAUGE_MAX - GAUGE_MIN), 0, 1);
+  const noReading = temperature === null;
+  const numeric =
+    temperature !== null && Number.isFinite(temperature) && temperature > -900;
+  const displayTemp = numeric ? temperature : null;
+  const pct = numeric ? clamp((temperature - GAUGE_MIN) / (GAUGE_MAX - GAUGE_MIN), 0, 1) : 0;
   const pathLength = 100;
   const dashOffset = pathLength * (1 - pct);
-  const accent = invalid ? "rgb(148, 163, 184)" : gaugeColor(temperature);
+  const accent = numeric ? gaugeColor(temperature) : "rgb(148, 163, 184)";
 
   /* Larger arc: r=80, stroke 12, matches scaled card */
   return (
@@ -96,7 +98,7 @@ export function SemicircleTemperatureGauge({ temperature, className = "" }: Semi
       <div className="pointer-events-none absolute inset-x-0 bottom-0 top-[32%] flex flex-col items-center justify-center">
         <div className="flex items-baseline gap-1.5 leading-none">
           <span className="text-[2rem] font-bold tabular-nums tracking-tight text-slate-900 dark:text-slate-50 sm:text-[2.35rem]">
-            {displayTemp !== null ? displayTemp.toFixed(1) : "—"}
+            {noReading ? "NA" : displayTemp !== null ? displayTemp.toFixed(1) : "—"}
           </span>
           <span className="text-sm font-medium text-slate-500 dark:text-slate-400">°C</span>
         </div>

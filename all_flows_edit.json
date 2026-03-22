@@ -1747,7 +1747,7 @@
         "type": "function",
         "z": "51ea9c70bb53699f",
         "name": "API Get Telemetry",
-        "func": "let base = flow.get(\"latestTelemetry\") || {};\nlet latest = Object.assign({}, base);\nlet now = Date.now();\nlatest.serverTimeMs = now;\nconst lm = flow.get(\"lastWokwiMqttMs\");\nif (typeof lm === \"number\" && lm > 0 && lm <= now + 60000) {\n    latest.lastWokwiMqttMs = lm;\n} else {\n    latest.lastWokwiMqttMs = null;\n}\nmsg.payload = latest;\nreturn msg;",
+        "func": "let base = flow.get(\"latestTelemetry\") || {};\nlet latest = Object.assign({}, base);\nlet now = Date.now();\nlatest.serverTimeMs = now;\nconst lm = flow.get(\"lastWokwiMqttMs\");\n// Expose any finite last MQTT time; omitting lm on clock edge cases caused one-poll null → dashboard flicker.\nif (typeof lm === \"number\" && lm > 0 && Number.isFinite(lm)) {\n    latest.lastWokwiMqttMs = lm;\n} else {\n    latest.lastWokwiMqttMs = null;\n}\nmsg.payload = latest;\nreturn msg;",
         "outputs": 1,
         "timeout": 0,
         "noerr": 0,

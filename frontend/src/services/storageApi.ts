@@ -68,6 +68,22 @@ export const storageApi = {
     }
   },
 
+  /** Samples with receivedAt >= sinceMs (bridge subsamples if the window is huge). */
+  async getTrendSince(sinceMs: number, limit = 5000): Promise<TrendPoint[]> {
+    try {
+      const q = new URLSearchParams({
+        sinceMs: String(Math.floor(sinceMs)),
+        limit: String(limit),
+      });
+      const r = await requestJson<{ ok: boolean; trend: TrendPoint[] }>(
+        `/api/storage/temperature-trend?${q.toString()}`,
+      );
+      return Array.isArray(r.trend) ? r.trend : [];
+    } catch {
+      return [];
+    }
+  },
+
   async getOccupancySessions(): Promise<OccupancySessionsPayload> {
     try {
       const r = await requestJson<{
