@@ -43,9 +43,13 @@ const telemetrySamples: TelemetryPayload[] = [
 
 let pointer = 0;
 
-export function getMockTelemetry(): TelemetryPayload {
+/** `livePipeline`: when true (dev mock mode), header dot is green; false when API failed — show disconnected. */
+export function getMockTelemetry(livePipeline = false): TelemetryPayload {
   pointer = (pointer + 1) % telemetrySamples.length;
-  return telemetrySamples[pointer];
+  const sample = telemetrySamples[pointer];
+  if (!livePipeline) return { ...sample };
+  const now = Date.now();
+  return { ...sample, serverTimeMs: now, lastWokwiMqttMs: now };
 }
 
 export function getMockSummary(): DashboardSummaryPayload {
@@ -62,15 +66,41 @@ export function getMockSummary(): DashboardSummaryPayload {
     fan: telemetry.fan,
     mode: telemetry.mode,
     collegeHours: telemetry.afterHoursAlert
-      ? "Outside college hours"
-      : "Within college hours",
+      ? "Outside scheduled hours (08:00–18:00)"
+      : "Within scheduled hours (08:00–18:00)",
     alerts,
     temperature: telemetry.temperature,
     occupied: telemetry.occupied,
     afterHoursAlert: telemetry.afterHoursAlert,
     tempThreshold: telemetry.tempThreshold,
     occupancyTimer: telemetry.occupied ? "12 min 08 sec" : "0 min 00 sec",
-    occupancySessions: 8,
+    occupancySessions: 3,
+    occupancySessionList: [
+      {
+        sessionNumber: 3,
+        durationText: "8 min 12 sec",
+        durationMinutes: 8,
+        durationSeconds: 492,
+        startedAtIso: new Date(Date.now() - 3_600_000).toISOString(),
+        endedAtIso: new Date(Date.now() - 2_900_000).toISOString(),
+      },
+      {
+        sessionNumber: 2,
+        durationText: "4 min 05 sec",
+        durationMinutes: 4,
+        durationSeconds: 245,
+        startedAtIso: new Date(Date.now() - 8_000_000).toISOString(),
+        endedAtIso: new Date(Date.now() - 7_755_000).toISOString(),
+      },
+      {
+        sessionNumber: 1,
+        durationText: "12 min 00 sec",
+        durationMinutes: 12,
+        durationSeconds: 720,
+        startedAtIso: new Date(Date.now() - 20_000_000).toISOString(),
+        endedAtIso: new Date(Date.now() - 19_280_000).toISOString(),
+      },
+    ],
     estimatedEnergySaved: "138 Wh",
     highTempWarning: hot ? "High temperature detected" : "No high temperature warning",
   };

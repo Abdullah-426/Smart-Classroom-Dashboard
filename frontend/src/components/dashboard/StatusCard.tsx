@@ -42,7 +42,7 @@ export function StatusCard({ summary }: StatusCardProps) {
             <p className="mt-1 font-medium uppercase">{summary.mode}</p>
           </div>
           <div className="rounded-xl bg-slate-100 p-3 dark:bg-slate-800">
-            <p className="text-slate-500 dark:text-slate-400">College Hours</p>
+            <p className="text-slate-500 dark:text-slate-400">Scheduled hours</p>
             <p className="mt-1 font-medium">{summary.collegeHours}</p>
           </div>
         </div>

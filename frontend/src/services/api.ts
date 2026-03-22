@@ -12,6 +12,18 @@ import { getMockAiReport, getMockMl, getMockSummary, getMockTelemetry } from "./
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 const FORCE_MOCK = import.meta.env.VITE_USE_MOCK === "true";
 
+const SCHEDULE_TOGGLE_TIMEOUT_MS = 15_000;
+const SCHEDULE_STATE_TIMEOUT_MS = 8_000;
+
+function abortAfter(ms: number): { signal: AbortSignal; clear: () => void } {
+  const c = new AbortController();
+  const id = window.setTimeout(() => c.abort(), ms);
+  return {
+    signal: c.signal,
+    clear: () => window.clearTimeout(id),
+  };
+}
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: { "Content-Type": "application/json", ...init?.headers },
@@ -27,12 +39,12 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const dashboardApi = {
   async getTelemetry(): Promise<TelemetryPayload> {
-    if (FORCE_MOCK) return getMockTelemetry();
+    if (FORCE_MOCK) return getMockTelemetry(true);
     try {
       // TODO: Node-RED should expose GET /api/telemetry with Wokwi-aligned fields.
       return await requestJson<TelemetryPayload>("/api/telemetry");
     } catch {
-      return getMockTelemetry();
+      return getMockTelemetry(false);
     }
   },
   async getSummary(): Promise<DashboardSummaryPayload> {
@@ -80,33 +92,110 @@ export const dashboardApi = {
   },
   async toggleSchedule(): Promise<ScheduleToggleResponse> {
     if (FORCE_MOCK) {
+      const now = new Date();
+      const msFromMidnight =
+        ((now.getHours() * 60 + now.getMinutes()) * 60 + now.getSeconds()) * 1000 + now.getMilliseconds();
+      const inWindow = msFromMidnight >= 8 * 60 * 60 * 1000 && msFromMidnight < 18 * 60 * 60 * 1000;
       return {
         ok: true,
         scheduleEnabled: false,
         command: { forceOff: false, afterHoursAlert: false },
+        inScheduleWindow: inWindow,
+        serverTimeIso: now.toISOString(),
+        serverLocalTime: now.toLocaleTimeString("en-GB", {
+          hour12: false,
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        }),
+        scheduleWindowLabel: "08:00–18:00 (mock)",
       };
     }
+    const { signal, clear } = abortAfter(SCHEDULE_TOGGLE_TIMEOUT_MS);
     try {
-      // TODO: Node-RED should expose POST /api/schedule-toggle.
       return await requestJson<ScheduleToggleResponse>("/api/schedule-toggle", {
         method: "POST",
         body: JSON.stringify({ source: "frontend-dashboard" }),
+        signal,
       });
     } catch {
-      return {
-        ok: true,
-        scheduleEnabled: false,
-        command: { forceOff: false, afterHoursAlert: false },
-      };
+      const st = abortAfter(SCHEDULE_STATE_TIMEOUT_MS);
+      try {
+        const s = await requestJson<ScheduleStateResponse>("/api/schedule-state", { signal: st.signal });
+        return {
+          ok: true,
+          scheduleEnabled: s.scheduleEnabled,
+          command: { forceOff: false, afterHoursAlert: false },
+          inScheduleWindow: s.inScheduleWindow,
+          serverTimeIso: s.serverTimeIso,
+          serverLocalTime: s.serverLocalTime,
+          scheduleWindowLabel: s.scheduleWindowLabel,
+        };
+      } catch {
+        const now = new Date();
+        const msFromMidnight =
+          ((now.getHours() * 60 + now.getMinutes()) * 60 + now.getSeconds()) * 1000 + now.getMilliseconds();
+        const inWindow = msFromMidnight >= 8 * 60 * 60 * 1000 && msFromMidnight < 18 * 60 * 60 * 1000;
+        return {
+          ok: true,
+          scheduleEnabled: false,
+          command: { forceOff: false, afterHoursAlert: false },
+          inScheduleWindow: inWindow,
+          serverLocalTime: now.toLocaleTimeString("en-GB", {
+            hour12: false,
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+          }),
+          scheduleWindowLabel: "08:00–18:00",
+        };
+      } finally {
+        st.clear();
+      }
+    } finally {
+      clear();
     }
   },
   async getScheduleState(): Promise<ScheduleStateResponse> {
-    if (FORCE_MOCK) return { ok: true, scheduleEnabled: true };
+    if (FORCE_MOCK) {
+      const now = new Date();
+      const msFromMidnight =
+        ((now.getHours() * 60 + now.getMinutes()) * 60 + now.getSeconds()) * 1000 + now.getMilliseconds();
+      const inWindow = msFromMidnight >= 8 * 60 * 60 * 1000 && msFromMidnight < 18 * 60 * 60 * 1000;
+      return {
+        ok: true,
+        scheduleEnabled: true,
+        inScheduleWindow: inWindow,
+        serverTimeIso: now.toISOString(),
+        serverLocalTime: now.toLocaleTimeString("en-GB", {
+          hour12: false,
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        }),
+        scheduleWindowLabel: "08:00–18:00 (mock)",
+      };
+    }
     try {
       // TODO: Node-RED should expose GET /api/schedule-state.
       return await requestJson<ScheduleStateResponse>("/api/schedule-state");
     } catch {
-      return { ok: true, scheduleEnabled: true };
+      const now = new Date();
+      const msFromMidnight =
+        ((now.getHours() * 60 + now.getMinutes()) * 60 + now.getSeconds()) * 1000 + now.getMilliseconds();
+      const inWindow = msFromMidnight >= 8 * 60 * 60 * 1000 && msFromMidnight < 18 * 60 * 60 * 1000;
+      return {
+        ok: true,
+        scheduleEnabled: true,
+        inScheduleWindow: inWindow,
+        serverLocalTime: now.toLocaleTimeString("en-GB", {
+          hour12: false,
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        }),
+        scheduleWindowLabel: "08:00–18:00",
+      };
     }
   },
 };

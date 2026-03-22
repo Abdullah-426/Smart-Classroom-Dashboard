@@ -10,6 +10,20 @@ export interface TelemetryPayload {
   forceOff: boolean;
   afterHoursAlert: boolean;
   tempThreshold: number;
+  /** Node-RED host epoch ms when /api/telemetry was built (for pipeline age). */
+  serverTimeMs?: number;
+  /** Node-RED host epoch ms when last MQTT telemetry (e.g. Wokwi) was received. */
+  lastWokwiMqttMs?: number;
+}
+
+export interface OccupancySessionDetail {
+  sessionNumber: number | null;
+  durationText: string;
+  durationMinutes?: number;
+  durationSeconds?: number;
+  startedAtIso: string | null;
+  endedAtIso: string | null;
+  legacy?: boolean;
 }
 
 export interface DashboardSummaryPayload {
@@ -25,6 +39,8 @@ export interface DashboardSummaryPayload {
   tempThreshold: number;
   occupancyTimer: string;
   occupancySessions: number;
+  /** Completed sessions (newest first); from Node-RED flow context */
+  occupancySessionList?: OccupancySessionDetail[];
   estimatedEnergySaved: string;
   highTempWarning: string;
 }
@@ -51,11 +67,20 @@ export interface ScheduleToggleResponse {
     forceOff: boolean;
     afterHoursAlert: boolean;
   };
+  /** Node-RED host local clock: inside [08:00, 18:00) */
+  inScheduleWindow?: boolean;
+  serverTimeIso?: string;
+  serverLocalTime?: string;
+  scheduleWindowLabel?: string;
 }
 
 export interface ScheduleStateResponse {
   ok: boolean;
   scheduleEnabled: boolean;
+  inScheduleWindow?: boolean;
+  serverTimeIso?: string;
+  serverLocalTime?: string;
+  scheduleWindowLabel?: string;
 }
 
 export interface TrendPoint {
