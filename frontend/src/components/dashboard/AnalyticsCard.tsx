@@ -12,6 +12,7 @@ interface AnalyticsCardProps {
   occupancyCurrentSession: CurrentOccupancySession | null;
   storedOccupancySessionKeys: string[];
   onRefresh: () => void | Promise<void>;
+  className?: string;
 }
 
 function formatDowntime(ms: number): string {
@@ -42,6 +43,7 @@ export function AnalyticsCard({
   occupancyCurrentSession,
   storedOccupancySessionKeys,
   onRefresh,
+  className,
 }: AnalyticsCardProps) {
   const [sessionsPanelOpen, setSessionsPanelOpen] = useState(false);
   const [resettingDowntime, setResettingDowntime] = useState(false);
@@ -63,6 +65,7 @@ export function AnalyticsCard({
       title="Analytics"
       subtitle="Operational insights"
       icon={<BarChart3 size={18} />}
+      className={className}
     >
       <div className="space-y-2">
         {metricCard("Estimated energy saved", summary.estimatedEnergySaved)}

@@ -23,9 +23,11 @@ import {
 import { trendRangeMs, type TrendRangeId } from "../constants/temperatureTrend";
 import { mergeHistoricWithLive } from "../utils/temperatureTrendSeries";
 import {
+  readEnergyBaselineWh,
   formatEnergySavedWh,
   parseEnergySavedWh,
   readStoredEnergyWh,
+  writeEnergyBaselineWh,
   writeStoredEnergyWh,
 } from "../utils/estimatedEnergySavedStorage";
 
@@ -114,6 +116,48 @@ function normalizeTelemetry(input: TelemetryPayload): TelemetryPayload {
         : input?.lastWokwiMqttMs === null
           ? null
           : undefined,
+
+    // Phase 1+: device grids (fallback to legacy light/fan booleans).
+    lightOnCount:
+      typeof input?.lightOnCount === "number" && Number.isFinite(input.lightOnCount)
+        ? input.lightOnCount
+        : input?.light === 1
+          ? 10
+          : 0,
+    lightTotal: typeof input?.lightTotal === "number" && Number.isFinite(input.lightTotal) ? input.lightTotal : 10,
+    lightsMask:
+      typeof input?.lightsMask === "number" && Number.isFinite(input.lightsMask)
+        ? input.lightsMask
+        : input?.light === 1
+          ? 0b1111111111
+          : 0,
+
+    fanOnCount:
+      typeof input?.fanOnCount === "number" && Number.isFinite(input.fanOnCount)
+        ? input.fanOnCount
+        : input?.fan === 1
+          ? 6
+          : 0,
+    fanTotal: typeof input?.fanTotal === "number" && Number.isFinite(input.fanTotal) ? input.fanTotal : 6,
+    fansMask:
+      typeof input?.fansMask === "number" && Number.isFinite(input.fansMask)
+        ? input.fansMask
+        : input?.fan === 1
+          ? 0b111111
+          : 0,
+
+    // Phase 1+: AC state
+    acPower: typeof input?.acPower === "boolean" ? input.acPower : undefined,
+    acMode: input?.acMode === "manual" ? "manual" : input?.acMode === "auto" ? "auto" : input?.mode,
+    acSetpoint:
+      typeof input?.acSetpoint === "number" && Number.isFinite(input.acSetpoint) ? input.acSetpoint : input?.tempThreshold,
+    acCoolingActive: typeof input?.acCoolingActive === "boolean" ? input.acCoolingActive : undefined,
+    acManualOverride: typeof input?.acManualOverride === "boolean" ? input.acManualOverride : undefined,
+
+    attendanceEvent:
+      input?.attendanceEvent && typeof input.attendanceEvent === "object" && typeof input.attendanceEvent.tagId === "string"
+        ? input.attendanceEvent
+        : null,
   };
 }
 
@@ -238,10 +282,13 @@ export function useDashboardData() {
       pipelineStableRef.current = stable;
       setPipelineConnected(stable);
 
+      const baselineWh = readEnergyBaselineWh();
       let energyWh = readStoredEnergyWh();
       const serverEnergyWh = parseEnergySavedWh(safeSummary.estimatedEnergySaved);
+      const serverEnergySinceBaselineWh = Math.max(0, serverEnergyWh - baselineWh);
       if (stable) {
-        energyWh = Math.max(energyWh, serverEnergyWh);
+        // Keep monotonic local display while still tracking server accumulation from the reset baseline.
+        energyWh = Math.max(energyWh, serverEnergySinceBaselineWh);
         writeStoredEnergyWh(energyWh);
       }
       const summaryWithEnergy = {
@@ -312,6 +359,29 @@ export function useDashboardData() {
   }, [trendRangeId]);
 
   const clearPersistedStorage = useCallback(async () => {
+    // Reset baseline against server cumulative counter so display restarts from 0 Wh.
+    const currentlyDisplayedWh =
+      bundleRef.current != null
+        ? parseEnergySavedWh(bundleRef.current.summary.estimatedEnergySaved)
+        : readStoredEnergyWh();
+    const baselineWh = readEnergyBaselineWh();
+    writeEnergyBaselineWh(baselineWh + Math.max(0, currentlyDisplayedWh));
+
+    // Also clear locally persisted estimated energy saved.
+    writeStoredEnergyWh(0);
+    setBundle((prev) => {
+      if (!prev) return prev;
+      const next: DashboardBundle = {
+        ...prev,
+        summary: {
+          ...prev.summary,
+          estimatedEnergySaved: formatEnergySavedWh(0),
+        },
+      };
+      bundleRef.current = next;
+      return next;
+    });
+
     try {
       await storageApi.clear();
     } catch {

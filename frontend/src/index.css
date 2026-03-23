@@ -17,9 +17,7 @@
 
   body {
     @apply m-0 bg-slate-100 font-sans text-slate-900 antialiased dark:bg-ink-950 dark:text-slate-100;
-    background-image:
-      radial-gradient(circle at 20% 10%, rgba(56, 189, 248, 0.08), transparent 28%),
-      radial-gradient(circle at 80% 5%, rgba(168, 85, 247, 0.12), transparent 35%);
+    position: relative;
   }
 }
 
@@ -27,4 +25,25 @@
   .glass-panel {
     @apply rounded-2xl border border-slate-200/70 bg-white/80 p-5 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-900/75 dark:shadow-panel;
   }
+}
+
+/* Global blurred/dimmed background layer (keeps panels crisp) */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+
+  background-image:
+    url("/background.jpg.jpeg"),
+    radial-gradient(circle at 20% 10%, rgba(56, 189, 248, 0.08), transparent 28%),
+    radial-gradient(circle at 80% 5%, rgba(168, 85, 247, 0.12), transparent 35%);
+  background-repeat: no-repeat, no-repeat, no-repeat;
+  background-size: cover, auto, auto;
+  background-position: center top, center top, center top;
+
+  /* Tune to taste: slightly dim + subtle blur */
+  filter: brightness(0.58) blur(6px);
+  transform: scale(1.03);
+  pointer-events: none;
 }

@@ -1,5 +1,6 @@
 import type {
   AiReportPayload,
+  AttendanceSummaryPayload,
   CommandPayload,
   DashboardSummaryPayload,
   MlPayload,
@@ -82,17 +83,20 @@ export const dashboardApi = {
       return getMockMl();
     }
   },
-  async sendCommand(command: CommandPayload): Promise<{ ok: boolean }> {
+  async sendCommand(command: CommandPayload): Promise<{ ok: boolean; error?: string }> {
     if (FORCE_MOCK) return { ok: true };
     try {
-      // TODO: Node-RED should expose POST /api/command and publish MQTT commands.
-      await requestJson("/api/command", {
+      // Node-RED POST /api/command should publish MQTT command payloads to Wokwi topic.
+      const res = await requestJson<{ ok?: boolean; error?: string }>("/api/command", {
         method: "POST",
         body: JSON.stringify(command),
       });
+      if (res && res.ok === false) {
+        return { ok: false, error: typeof res.error === "string" ? res.error : "Command rejected by API" };
+      }
       return { ok: true };
-    } catch {
-      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   },
   async generateAiReport(): Promise<AiReportPayload> {
@@ -258,5 +262,31 @@ export const dashboardApi = {
         scheduleWindowLabel: "08:00–18:00",
       };
     }
+  },
+
+  async getAttendance(): Promise<AttendanceSummaryPayload> {
+    if (FORCE_MOCK) {
+      return {
+        ok: true,
+        session: {
+          sessionStartMs: Date.now() - 30 * 60 * 1000,
+          sessionEndMs: Date.now() + 2 * 60 * 60 * 1000,
+          lateAfterMs: Date.now() - 20 * 60 * 1000,
+          absenceTimeoutMs: 60_000,
+        },
+        presentCount: 0,
+        tags: [],
+      };
+    }
+    return requestJson<AttendanceSummaryPayload>("/api/attendance");
+  },
+
+  async resetAttendance(): Promise<{ ok: boolean }> {
+    if (FORCE_MOCK) return { ok: true };
+    return requestJson("/api/attendance/reset", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
   },
 };

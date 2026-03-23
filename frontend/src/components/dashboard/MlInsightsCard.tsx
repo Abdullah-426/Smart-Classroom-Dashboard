@@ -4,13 +4,19 @@ import { Card } from "../ui/Card";
 
 interface MlInsightsCardProps {
   ml: MlPayload;
+  className?: string;
 }
 
-export function MlInsightsCard({ ml }: MlInsightsCardProps) {
+export function MlInsightsCard({ ml, className }: MlInsightsCardProps) {
   const trend = ml.slopePerMin > 0 ? "Rising" : ml.slopePerMin < 0 ? "Falling" : "Stable";
 
   return (
-    <Card title="ML Insights" subtitle="Predictive temperature intelligence" icon={<BrainCircuit size={18} />}>
+    <Card
+      title="ML Insights"
+      subtitle="Predictive temperature intelligence"
+      icon={<BrainCircuit size={18} />}
+      className={className}
+    >
       <div className="space-y-2 text-sm">
         <div className="grid grid-cols-2 gap-2">
           <Metric label="2-min forecast" value={`${ml.predictedTemp.toFixed(1)} deg C`} />

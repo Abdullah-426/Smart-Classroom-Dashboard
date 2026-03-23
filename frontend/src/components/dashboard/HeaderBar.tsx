@@ -1,7 +1,9 @@
-import { Cpu, RefreshCcw } from "lucide-react";
+import { Cpu, Home, RefreshCcw, ScanLine } from "lucide-react";
 import { ThemeToggle } from "../ui/ThemeToggle";
 
 interface HeaderBarProps {
+  route: "home" | "attendance";
+  onNavigate: (r: "home" | "attendance") => void;
   lastUpdated: string;
   /** null = still loading first poll; true/false from Wokwi→MQTT freshness on Node-RED */
   pipelineConnected: boolean | null;
@@ -14,7 +16,7 @@ function pipelineTitle(connected: boolean | null): string {
   return "No recent device telemetry (check Wokwi / MQTT / Node-RED)";
 }
 
-export function HeaderBar({ lastUpdated, pipelineConnected, onRefresh }: HeaderBarProps) {
+export function HeaderBar({ route, onNavigate, lastUpdated, pipelineConnected, onRefresh }: HeaderBarProps) {
   return (
     <header className="glass-panel mb-5 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
       <div className="flex items-start gap-3">
@@ -22,10 +24,10 @@ export function HeaderBar({ lastUpdated, pipelineConnected, onRefresh }: HeaderB
           <Cpu size={20} />
         </div>
         <div>
-          <h1 className="text-xl font-semibold text-slate-900 dark:text-white">
+          <h1 className="text-lg font-semibold text-slate-900 dark:text-white">
             Smart Classroom Dashboard
           </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
             Node-RED powered monitoring and control surface
           </p>
         </div>
@@ -48,6 +50,35 @@ export function HeaderBar({ lastUpdated, pipelineConnected, onRefresh }: HeaderB
             }`}
           />
         </div>
+
+        <button
+          type="button"
+          onClick={() => onNavigate("home")}
+          className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold whitespace-nowrap transition ${
+            route === "home"
+              ? "border-sky-400 bg-sky-500/10 text-sky-700 dark:border-sky-400 dark:bg-sky-500/20 dark:text-sky-200"
+              : "border-slate-300 bg-white/0 text-slate-700 hover:bg-white/40 dark:border-slate-700 dark:bg-white/0 dark:text-slate-200 dark:hover:bg-slate-800/50"
+          }`}
+        >
+          <Home size={14} />
+          <span className="hidden sm:inline">Home</span>
+          <span className="sm:hidden">Home</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onNavigate("attendance")}
+          className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold whitespace-nowrap transition ${
+            route === "attendance"
+              ? "border-sky-400 bg-sky-500/10 text-sky-700 dark:border-sky-400 dark:bg-sky-500/20 dark:text-sky-200"
+              : "border-slate-300 bg-white/0 text-slate-700 hover:bg-white/40 dark:border-slate-700 dark:bg-white/0 dark:text-slate-200 dark:hover:bg-slate-800/50"
+          }`}
+        >
+          <ScanLine size={14} />
+          <span className="hidden sm:inline">Attendance</span>
+          <span className="sm:hidden">Attend</span>
+        </button>
+
         <button
           type="button"
           onClick={onRefresh}

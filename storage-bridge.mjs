@@ -17,6 +17,8 @@ const TELEMETRY_FILE = path.join(DATA_DIR, "telemetry.jsonl");
 const SESSIONS_FILE = path.join(DATA_DIR, "occupancy-sessions.json");
 const STATE_FILE = path.join(DATA_DIR, "bridge-state.json");
 const DOWNTIME_FILE = path.join(DATA_DIR, "downtime.json");
+const ATTENDANCE_EVENTS_FILE = path.join(DATA_DIR, "attendance-events.jsonl");
+const ATTENDANCE_STATE_FILE = path.join(DATA_DIR, "attendance-bridge-state.json");
 
 /** Since this process started (helps diagnose “bridge reachable” but Node-RED never hits /ingest). */
 let bridgeIngestCount = 0;
@@ -172,13 +174,73 @@ function processIngest(body) {
     light: body.light ? 1 : 0,
     fan: body.fan ? 1 : 0,
     mode: body.mode || "auto",
+    forceOff: Boolean(body.forceOff),
+    afterHoursAlert: Boolean(body.afterHoursAlert),
     tempThreshold: typeof body.tempThreshold === "number" ? body.tempThreshold : 28,
+
+    // Phase 1+ richer device telemetry (kept for historical analysis/backfill)
+    lightOnCount:
+      typeof body.lightOnCount === "number" && Number.isFinite(body.lightOnCount)
+        ? body.lightOnCount
+        : body.light
+          ? 10
+          : 0,
+    lightTotal:
+      typeof body.lightTotal === "number" && Number.isFinite(body.lightTotal)
+        ? body.lightTotal
+        : 10,
+    lightsMask:
+      typeof body.lightsMask === "number" && Number.isFinite(body.lightsMask)
+        ? body.lightsMask
+        : null,
+    fanOnCount:
+      typeof body.fanOnCount === "number" && Number.isFinite(body.fanOnCount)
+        ? body.fanOnCount
+        : body.fan
+          ? 6
+          : 0,
+    fanTotal:
+      typeof body.fanTotal === "number" && Number.isFinite(body.fanTotal)
+        ? body.fanTotal
+        : 6,
+    fansMask:
+      typeof body.fansMask === "number" && Number.isFinite(body.fansMask)
+        ? body.fansMask
+        : null,
+    acPower: typeof body.acPower === "boolean" ? body.acPower : null,
+    acMode: typeof body.acMode === "string" ? body.acMode : null,
+    acSetpoint:
+      typeof body.acSetpoint === "number" && Number.isFinite(body.acSetpoint)
+        ? body.acSetpoint
+        : null,
+    acCoolingActive:
+      typeof body.acCoolingActive === "boolean" ? body.acCoolingActive : null,
+    acManualOverride:
+      typeof body.acManualOverride === "boolean" ? body.acManualOverride : null,
   };
   appendTelemetryLine(line);
   bridgeIngestCount += 1;
   bridgeLastIngestMs = Date.now();
   if (process.env.STORAGE_BRIDGE_LOG_INGEST === "1") {
     console.log("[storage-bridge] ingest", line.receivedAt, line.temperature, line.occupied);
+  }
+
+  // Optional attendance event ingest (from Wokwi telemetry)
+  const attendanceEv = normalizeAttendanceEvent(body.attendanceEvent);
+  if (attendanceEv) {
+    const st = loadAttendanceBridgeState();
+    const now = receivedAt;
+    const SUPPRESS_MS = 5000;
+    const lastAt = st.lastEventAtMsByTag[attendanceEv.tagId];
+    if (typeof lastAt !== "number" || now - lastAt >= SUPPRESS_MS) {
+      appendAttendanceEventRow({
+        receivedAt: now,
+        tagId: attendanceEv.tagId,
+        eventType: attendanceEv.eventType,
+      });
+      st.lastEventAtMsByTag[attendanceEv.tagId] = now;
+      saveAttendanceBridgeState(st);
+    }
   }
 
   let state = loadState();
@@ -376,7 +438,7 @@ function storageInfo() {
 
 function clearStorage() {
   ensureDir();
-  for (const f of [TELEMETRY_FILE, SESSIONS_FILE, STATE_FILE]) {
+  for (const f of [TELEMETRY_FILE, SESSIONS_FILE, STATE_FILE, ATTENDANCE_EVENTS_FILE, ATTENDANCE_STATE_FILE]) {
     try {
       fs.unlinkSync(f);
     } catch {
@@ -388,6 +450,139 @@ function clearStorage() {
   bridgeIngestCount = 0;
   bridgeLastIngestMs = null;
   return { ok: true, cleared: true };
+}
+
+function loadAttendanceBridgeState() {
+  const s = readJsonSafe(ATTENDANCE_STATE_FILE, {});
+  const lastEventAtMsByTag = s.lastEventAtMsByTag && typeof s.lastEventAtMsByTag === "object" ? s.lastEventAtMsByTag : {};
+  return { lastEventAtMsByTag };
+}
+
+function saveAttendanceBridgeState(st) {
+  writeJsonAtomic(ATTENDANCE_STATE_FILE, st);
+}
+
+function normalizeAttendanceEvent(ev) {
+  if (!ev || typeof ev !== "object") return null;
+  const tagIdRaw = ev.tagId;
+  const tagId = typeof tagIdRaw === "string" ? tagIdRaw.trim() : "";
+  if (!tagId) return null;
+  const eventType = typeof ev.eventType === "string" ? ev.eventType : "present";
+  return { tagId, eventType };
+}
+
+function appendAttendanceEventRow(row) {
+  ensureDir();
+  fs.appendFileSync(ATTENDANCE_EVENTS_FILE, `${JSON.stringify(row)}\n`, "utf8");
+}
+
+function parseAttendanceEvents() {
+  ensureDir();
+  if (!fs.existsSync(ATTENDANCE_EVENTS_FILE)) return [];
+  const buf = fs.readFileSync(ATTENDANCE_EVENTS_FILE, "utf8");
+  if (!buf.trim()) return [];
+  return buf
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((ln) => {
+      try {
+        return JSON.parse(ln);
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+}
+
+function scheduleWindowMsFromNow(nowMs, timeZone) {
+  // Window: [08:00, 18:00) in classroom time.
+  // For this bridge, we keep a pragmatic implementation (good enough for consistent forceOff schedule behavior).
+  const now = new Date(nowMs);
+  const tz = typeof timeZone === "string" ? timeZone.trim() : "";
+
+  // If tz is missing, use local time directly.
+  if (!tz) {
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 8, 0, 0).getTime();
+    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 18, 0, 0).getTime();
+    return { sessionStartMs: start, sessionEndMs: end };
+  }
+
+  // For tz mode: derive Y-M-D by formatting in tz, then construct a UTC timestamp for the desired wall time.
+  // This is consistent enough for attendance UI; Node-RED is the source of truth for forceOff.
+  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(now);
+  const pick = (t) => parts.find((x) => x.type === t)?.value;
+  const year = Number(pick("year") || 1970);
+  const month = Number((pick("month") || "01")) - 1;
+  const day = Number(pick("day") || "1");
+  const sessionStartMs = new Date(Date.UTC(year, month, day, 8, 0, 0)).getTime();
+  const sessionEndMs = new Date(Date.UTC(year, month, day, 18, 0, 0)).getTime();
+  return { sessionStartMs, sessionEndMs };
+}
+
+function attendanceSummaryNow() {
+  const nowMs = Date.now();
+  const tz = process.env.CLASSROOM_TIMEZONE || "";
+  const { sessionStartMs, sessionEndMs } = scheduleWindowMsFromNow(nowMs, tz);
+
+  const lateAfterMs = sessionStartMs + 10 * 60 * 1000; // 10 minutes after window start
+  const absenceTimeoutMs = 60 * 1000; // consider absent after 1 minute without scans
+
+  // If outside the window, still compute using the last "today" session range.
+  // (Wokwi can still emit events; UI will show them in that range.)
+  const sinceMs = nowMs < sessionStartMs ? sessionStartMs : sessionStartMs;
+
+  const rows = parseAttendanceEvents().filter((r) => typeof r.receivedAt === "number" && r.receivedAt >= sinceMs);
+  rows.sort((a, b) => a.receivedAt - b.receivedAt);
+
+  const byTag = new Map();
+  for (const r of rows) {
+    const tagId = r.tagId;
+    if (typeof tagId !== "string" || !tagId.trim()) continue;
+    const at = r.receivedAt;
+
+    let entry = byTag.get(tagId);
+    if (!entry) {
+      entry = { tagId, firstSeenAtMs: at, lastSeenAtMs: at, eventCount: 1, late: at >= lateAfterMs };
+      byTag.set(tagId, entry);
+    } else {
+      entry.lastSeenAtMs = Math.max(entry.lastSeenAtMs, at);
+      entry.eventCount += 1;
+      entry.late = entry.late || at >= lateAfterMs;
+    }
+  }
+
+  const tags = [];
+  for (const entry of byTag.values()) {
+    const present = nowMs - entry.lastSeenAtMs <= absenceTimeoutMs;
+    tags.push({
+      tagId: entry.tagId,
+      firstSeenAtIso: new Date(entry.firstSeenAtMs).toISOString(),
+      lastSeenAtIso: new Date(entry.lastSeenAtMs).toISOString(),
+      eventCount: entry.eventCount,
+      late: entry.late,
+      present,
+      endedAtIso: present ? null : new Date(entry.lastSeenAtMs).toISOString(),
+    });
+  }
+
+  tags.sort((a, b) => {
+    if (a.present !== b.present) return a.present ? -1 : 1;
+    if (a.late !== b.late) return a.late ? -1 : 1;
+    return a.firstSeenAtIso.localeCompare(b.firstSeenAtIso);
+  });
+
+  return {
+    ok: true,
+    session: {
+      sessionStartMs,
+      sessionEndMs,
+      lateAfterMs,
+      absenceTimeoutMs,
+    },
+    presentCount: tags.filter((t) => t.present).length,
+    tags,
+  };
 }
 
 const server = http.createServer(async (req, res) => {
@@ -454,6 +649,38 @@ const server = http.createServer(async (req, res) => {
       }
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ ok: true, trend }));
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/storage/attendance/reset") {
+      try {
+        if (fs.existsSync(ATTENDANCE_EVENTS_FILE)) fs.unlinkSync(ATTENDANCE_EVENTS_FILE);
+      } catch {}
+      try {
+        if (fs.existsSync(ATTENDANCE_STATE_FILE)) fs.unlinkSync(ATTENDANCE_STATE_FILE);
+      } catch {}
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/storage/attendance-summary") {
+      const out = attendanceSummaryNow();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(out));
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/storage/attendance-events") {
+      const limit = Math.min(2000, Math.max(1, Number(url.searchParams.get("limit")) || 200));
+      const sinceRaw = url.searchParams.get("sinceMs");
+      const sinceMs = sinceRaw != null && sinceRaw !== "" && Number.isFinite(Number(sinceRaw)) ? Number(sinceRaw) : 0;
+      const rows = parseAttendanceEvents()
+        .filter((r) => typeof r.receivedAt === "number" && r.receivedAt >= sinceMs)
+        .sort((a, b) => b.receivedAt - a.receivedAt)
+        .slice(0, limit);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true, events: rows }));
       return;
     }
 

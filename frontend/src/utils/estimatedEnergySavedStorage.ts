@@ -1,4 +1,5 @@
 const LS_KEY = "smart-classroom-estimated-energy-saved-wh";
+const LS_BASELINE_KEY = "smart-classroom-estimated-energy-saved-baseline-wh";
 
 export function readStoredEnergyWh(): number {
   try {
@@ -14,6 +15,25 @@ export function readStoredEnergyWh(): number {
 export function writeStoredEnergyWh(wh: number): void {
   try {
     localStorage.setItem(LS_KEY, String(wh));
+  } catch {
+    /* quota / private mode */
+  }
+}
+
+export function readEnergyBaselineWh(): number {
+  try {
+    const raw = localStorage.getItem(LS_BASELINE_KEY);
+    if (raw == null || raw === "") return 0;
+    const n = parseFloat(raw);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export function writeEnergyBaselineWh(wh: number): void {
+  try {
+    localStorage.setItem(LS_BASELINE_KEY, String(wh));
   } catch {
     /* quota / private mode */
   }

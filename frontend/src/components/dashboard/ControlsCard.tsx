@@ -1,12 +1,13 @@
 import { SlidersHorizontal } from "lucide-react";
-import { useRef, useState } from "react";
-import type { CommandPayload, ScheduleStateResponse } from "../../types/dashboard";
+import { useEffect, useRef, useState } from "react";
+import type { CommandPayload, ScheduleStateResponse, TelemetryPayload } from "../../types/dashboard";
 import { Card } from "../ui/Card";
 
 interface ControlsCardProps {
   onSendCommand: (command: CommandPayload) => Promise<void>;
   onToggleSchedule: () => Promise<void>;
   scheduleState: ScheduleStateResponse | null;
+  telemetry: TelemetryPayload;
 }
 
 const SCHEDULE_ACTIVE_HOURS = "08:00–18:00";
@@ -17,11 +18,25 @@ const presets = [
   { label: "Energy Saver", value: 30 },
 ];
 
-export function ControlsCard({ onSendCommand, onToggleSchedule, scheduleState }: ControlsCardProps) {
+export function ControlsCard({ onSendCommand, onToggleSchedule, scheduleState, telemetry }: ControlsCardProps) {
   const [presetValue, setPresetValue] = useState("28");
   const [autoBusy, setAutoBusy] = useState(false);
   const [manualBusy, setManualBusy] = useState(false);
   const [presetBusy, setPresetBusy] = useState(false);
+  const [levelsBusy, setLevelsBusy] = useState(false);
+
+  // Defensive: telemetry can briefly be undefined during hot reload / initial fetch.
+  const isManual = telemetry?.mode === "manual";
+
+  const [lightLevel, setLightLevel] = useState<number>(telemetry?.lightOnCount ?? (telemetry?.light ? 10 : 0));
+  const [fanLevel, setFanLevel] = useState<number>(telemetry?.fanOnCount ?? (telemetry?.fan ? 6 : 0));
+
+  useEffect(() => {
+    if (!levelsBusy) {
+      setLightLevel(telemetry?.lightOnCount ?? (telemetry?.light ? 10 : 0));
+      setFanLevel(telemetry?.fanOnCount ?? (telemetry?.fan ? 6 : 0));
+    }
+  }, [telemetry?.lightOnCount, telemetry?.fanOnCount, telemetry?.light, telemetry?.fan, levelsBusy]);
   /** Visual only — button stays focusable/clickable; ref blocks double-submit. */
   const [scheduleWorking, setScheduleWorking] = useState(false);
   const scheduleLockRef = useRef(false);
@@ -72,7 +87,12 @@ export function ControlsCard({ onSendCommand, onToggleSchedule, scheduleState }:
   }
 
   return (
-    <Card title="Controls" subtitle="Manual and automatic control commands" icon={<SlidersHorizontal size={18} />}>
+    <Card
+      title="Controls"
+      subtitle="Manual and automatic control commands"
+      icon={<SlidersHorizontal size={18} />}
+      className="lg:col-span-2 lg:row-span-2 lg:h-full"
+    >
       <div className="space-y-3">
         <button
           type="button"
@@ -86,7 +106,7 @@ export function ControlsCard({ onSendCommand, onToggleSchedule, scheduleState }:
           <button
             type="button"
             disabled={manualBusy}
-            onClick={() => sendManual({ mode: "manual", light: 1, forceOff: false, afterHoursAlert: false })}
+            onClick={() => sendManual({ mode: "manual", light: true, forceOff: false, afterHoursAlert: false })}
             className="rounded-xl border border-slate-300 px-3 py-2 text-xs dark:border-slate-700"
           >
             Light ON
@@ -94,7 +114,7 @@ export function ControlsCard({ onSendCommand, onToggleSchedule, scheduleState }:
           <button
             type="button"
             disabled={manualBusy}
-            onClick={() => sendManual({ mode: "manual", light: 0, forceOff: false, afterHoursAlert: false })}
+            onClick={() => sendManual({ mode: "manual", light: false, forceOff: false, afterHoursAlert: false })}
             className="rounded-xl border border-slate-300 px-3 py-2 text-xs dark:border-slate-700"
           >
             Light OFF
@@ -102,7 +122,15 @@ export function ControlsCard({ onSendCommand, onToggleSchedule, scheduleState }:
           <button
             type="button"
             disabled={manualBusy}
-            onClick={() => sendManual({ mode: "manual", fan: 1, forceOff: false, afterHoursAlert: false })}
+            onClick={() =>
+              sendManual({
+                mode: "manual",
+                fan: true,
+                acPower: true,
+                forceOff: false,
+                afterHoursAlert: false,
+              })
+            }
             className="rounded-xl border border-slate-300 px-3 py-2 text-xs dark:border-slate-700"
           >
             Fan ON
@@ -110,11 +138,78 @@ export function ControlsCard({ onSendCommand, onToggleSchedule, scheduleState }:
           <button
             type="button"
             disabled={manualBusy}
-            onClick={() => sendManual({ mode: "manual", fan: 0, forceOff: false, afterHoursAlert: false })}
+            onClick={() => sendManual({ mode: "manual", fan: false, forceOff: false, afterHoursAlert: false })}
             className="rounded-xl border border-slate-300 px-3 py-2 text-xs dark:border-slate-700"
           >
             Fan OFF
           </button>
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">Grouped levels (manual)</p>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              {isManual ? "Active" : "Disabled in AUTO mode"}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-slate-200/80 bg-white/40 p-3 dark:border-slate-800/60 dark:bg-slate-900/30">
+            <div className="space-y-3">
+              <div>
+                <label className="text-[11px] text-slate-600 dark:text-slate-300">
+                  Lights level: <span className="font-semibold tabular-nums">{lightLevel}</span>/10
+                </label>
+                <input
+                  type="range"
+                  min={0}
+                  max={10}
+                  step={1}
+                  value={lightLevel}
+                  disabled={!isManual || levelsBusy}
+                  onChange={(e) => setLightLevel(Number(e.target.value))}
+                  className="mt-2 w-full accent-sky-500"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] text-slate-600 dark:text-slate-300">
+                  Fans level: <span className="font-semibold tabular-nums">{fanLevel}</span>/6
+                </label>
+                <input
+                  type="range"
+                  min={0}
+                  max={6}
+                  step={1}
+                  value={fanLevel}
+                  disabled={!isManual || levelsBusy}
+                  onChange={(e) => setFanLevel(Number(e.target.value))}
+                  className="mt-2 w-full accent-cyan-500"
+                />
+              </div>
+              <button
+                type="button"
+                disabled={!isManual || levelsBusy}
+                onClick={() => {
+                  setLevelsBusy(true);
+                  void (async () => {
+                    try {
+                      await onSendCommand({
+                        mode: "manual",
+                        light: Math.round(lightLevel),
+                        fan: Math.round(fanLevel),
+                        acPower: fanLevel > 0 ? true : undefined,
+                        forceOff: false,
+                        afterHoursAlert: false,
+                      });
+                    } finally {
+                      setLevelsBusy(false);
+                    }
+                  })();
+                }}
+                className="w-full rounded-xl bg-sky-500 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-600 disabled:opacity-50"
+              >
+                {levelsBusy ? "Applying…" : "Apply Levels"}
+              </button>
+            </div>
+          </div>
         </div>
         <div className="space-y-2">
           <label htmlFor="preset" className="text-xs text-slate-500 dark:text-slate-400">

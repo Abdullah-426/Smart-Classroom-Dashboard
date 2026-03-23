@@ -9,6 +9,7 @@ interface TemperatureTrendCardProps {
   trend: TrendPoint[];
   rangeId: TrendRangeId;
   onRangeChange: (id: TrendRangeId) => void;
+  className?: string;
 }
 
 /** Recharts needs strictly increasing numeric X; duplicate `time` strings caused hairline gaps. */
@@ -25,7 +26,7 @@ function chartDataWithMonotonicX(pts: TrendPoint[]): TrendPoint[] {
   });
 }
 
-export function TemperatureTrendCard({ trend, rangeId, onRangeChange }: TemperatureTrendCardProps) {
+export function TemperatureTrendCard({ trend, rangeId, onRangeChange, className }: TemperatureTrendCardProps) {
   const data = useMemo(() => chartDataWithMonotonicX(trend), [trend]);
   const longScale = trendRangeLongScale(rangeId);
 
@@ -34,7 +35,7 @@ export function TemperatureTrendCard({ trend, rangeId, onRangeChange }: Temperat
       title="Temperature Trend"
       subtitle="Storage-backed window + live edge; gaps when samples are missing or more than 20s apart"
       icon={<LineChart size={18} />}
-      className="lg:col-span-2"
+      className={`lg:col-span-2 ${className ?? ""}`}
     >
       <div className="mb-3 flex flex-wrap gap-1.5">
         {TREND_RANGE_OPTIONS.map((o) => (

@@ -8,9 +8,10 @@ interface TemperatureCardProps {
   trend: TrendPoint[];
   /** When false, no Wokwi/MQTT line on the trend chart — gauge shows NA and no reading. */
   trendLineLive: boolean;
+  className?: string;
 }
 
-export function TemperatureCard({ telemetry, trend, trendLineLive }: TemperatureCardProps) {
+export function TemperatureCard({ telemetry, trend, trendLineLive, className }: TemperatureCardProps) {
   const t = telemetry.temperature;
   const valid = trendLineLive && Number.isFinite(t) && t > -900;
   const threshold = telemetry.tempThreshold;
@@ -30,7 +31,12 @@ export function TemperatureCard({ telemetry, trend, trendLineLive }: Temperature
   const recentMax = recentTemps.length ? Math.max(...recentTemps) : null;
 
   return (
-    <Card title="Temperature" subtitle="Current classroom temperature" icon={<Thermometer size={18} />}>
+    <Card
+      title="Temperature"
+      subtitle="Current classroom temperature"
+      icon={<Thermometer size={18} />}
+      className={className}
+    >
       <div className="flex flex-col gap-4">
         <SemicircleTemperatureGauge temperature={trendLineLive ? telemetry.temperature : null} />
 

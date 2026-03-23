@@ -4,6 +4,7 @@ import { Card } from "../ui/Card";
 
 interface StatusCardProps {
   summary: DashboardSummaryPayload;
+  className?: string;
 }
 
 function statusClass(occupied: boolean) {
@@ -12,12 +13,17 @@ function statusClass(occupied: boolean) {
     : "border-slate-300 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300";
 }
 
-export function StatusCard({ summary }: StatusCardProps) {
+export function StatusCard({ summary, className }: StatusCardProps) {
   const lightOn = summary.light === 1;
   const fanOn = summary.fan === 1;
 
   return (
-    <Card title="Live Classroom Status" subtitle="Room occupancy and control mode" icon={<Activity size={18} />}>
+    <Card
+      title="Live Classroom Status"
+      subtitle="Room occupancy and control mode"
+      icon={<Activity size={18} />}
+      className={className}
+    >
       <div className="space-y-3">
         <div className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium ${statusClass(summary.occupied)}`}>
           {summary.roomStatus}

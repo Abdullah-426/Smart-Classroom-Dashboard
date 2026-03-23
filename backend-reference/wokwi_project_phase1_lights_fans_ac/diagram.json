@@ -1,0 +1,1037 @@
+{
+  "version": 1,
+  "author": "Abdullah Ansari",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "board-esp32-devkit-c-v4",
+      "id": "esp",
+      "top": 180,
+      "left": -40,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-pir-motion-sensor",
+      "id": "pir1",
+      "top": -120,
+      "left": -340,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-dht22",
+      "id": "dht1",
+      "top": -120,
+      "left": -60,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-buzzer",
+      "id": "bz1",
+      "top": -120,
+      "left": 250,
+      "attrs": {
+        "volume": "0.1"
+      }
+    },
+    {
+      "type": "board-mfrc522",
+      "id": "rfid1",
+      "top": 150,
+      "left": 500,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-74hc595",
+      "id": "sr1",
+      "top": 390,
+      "left": -320,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-74hc595",
+      "id": "sr2",
+      "top": 390,
+      "left": -180,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-led",
+      "id": "acPowerLed",
+      "top": 200,
+      "left": -460,
+      "attrs": {
+        "color": "blue",
+        "flip": "1"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "acPowerR",
+      "top": 230,
+      "left": -460,
+      "rotate": 90,
+      "attrs": {
+        "value": "220"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "acCoolingLed",
+      "top": 280,
+      "left": -460,
+      "attrs": {
+        "color": "green",
+        "flip": "1"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "acCoolingR",
+      "top": 310,
+      "left": -460,
+      "rotate": 90,
+      "attrs": {
+        "value": "220"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "w1",
+      "top": 610,
+      "left": -350,
+      "attrs": {
+        "color": "white",
+        "flip": "1"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "w2",
+      "top": 610,
+      "left": -300,
+      "attrs": {
+        "color": "white",
+        "flip": "1"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "w3",
+      "top": 610,
+      "left": -250,
+      "attrs": {
+        "color": "white",
+        "flip": "1"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "w4",
+      "top": 610,
+      "left": -200,
+      "attrs": {
+        "color": "white",
+        "flip": "1"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "w5",
+      "top": 610,
+      "left": -150,
+      "attrs": {
+        "color": "white",
+        "flip": "1"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "w6",
+      "top": 560,
+      "left": -350,
+      "attrs": {
+        "color": "white",
+        "flip": "1"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "w7",
+      "top": 560,
+      "left": -300,
+      "attrs": {
+        "color": "white",
+        "flip": "1"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "w8",
+      "top": 560,
+      "left": -250,
+      "attrs": {
+        "color": "white",
+        "flip": "1"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "w9",
+      "top": 560,
+      "left": -200,
+      "attrs": {
+        "color": "white",
+        "flip": "1"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "w10",
+      "top": 560,
+      "left": -150,
+      "attrs": {
+        "color": "white",
+        "flip": "1"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "f1",
+      "top": 610,
+      "left": 80,
+      "attrs": {
+        "color": "cyan",
+        "flip": "1"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "f2",
+      "top": 610,
+      "left": 130,
+      "attrs": {
+        "color": "cyan",
+        "flip": "1"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "f3",
+      "top": 610,
+      "left": 180,
+      "attrs": {
+        "color": "cyan",
+        "flip": "1"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "f4",
+      "top": 560,
+      "left": 80,
+      "attrs": {
+        "color": "cyan",
+        "flip": "1"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "f5",
+      "top": 560,
+      "left": 130,
+      "attrs": {
+        "color": "cyan",
+        "flip": "1"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "f6",
+      "top": 560,
+      "left": 180,
+      "attrs": {
+        "color": "cyan",
+        "flip": "1"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "rw1",
+      "top": 640,
+      "left": -350,
+      "rotate": 90,
+      "attrs": {
+        "value": "220"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "rw2",
+      "top": 640,
+      "left": -300,
+      "rotate": 90,
+      "attrs": {
+        "value": "220"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "rw3",
+      "top": 640,
+      "left": -250,
+      "rotate": 90,
+      "attrs": {
+        "value": "220"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "rw4",
+      "top": 640,
+      "left": -200,
+      "rotate": 90,
+      "attrs": {
+        "value": "220"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "rw5",
+      "top": 640,
+      "left": -150,
+      "rotate": 90,
+      "attrs": {
+        "value": "220"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "rw6",
+      "top": 590,
+      "left": -350,
+      "rotate": 90,
+      "attrs": {
+        "value": "220"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "rw7",
+      "top": 590,
+      "left": -300,
+      "rotate": 90,
+      "attrs": {
+        "value": "220"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "rw8",
+      "top": 590,
+      "left": -250,
+      "rotate": 90,
+      "attrs": {
+        "value": "220"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "rw9",
+      "top": 590,
+      "left": -200,
+      "rotate": 90,
+      "attrs": {
+        "value": "220"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "rw10",
+      "top": 590,
+      "left": -150,
+      "rotate": 90,
+      "attrs": {
+        "value": "220"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "rf1",
+      "top": 640,
+      "left": 80,
+      "rotate": 90,
+      "attrs": {
+        "value": "220"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "rf2",
+      "top": 640,
+      "left": 130,
+      "rotate": 90,
+      "attrs": {
+        "value": "220"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "rf3",
+      "top": 640,
+      "left": 180,
+      "rotate": 90,
+      "attrs": {
+        "value": "220"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "rf4",
+      "top": 590,
+      "left": 80,
+      "rotate": 90,
+      "attrs": {
+        "value": "220"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "rf5",
+      "top": 590,
+      "left": 130,
+      "rotate": 90,
+      "attrs": {
+        "value": "220"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "rf6",
+      "top": 590,
+      "left": 180,
+      "rotate": 90,
+      "attrs": {
+        "value": "220"
+      }
+    }
+  ],
+  "connections": [
+    [
+      "esp:TX",
+      "$serialMonitor:RX",
+      "",
+      []
+    ],
+    [
+      "esp:RX",
+      "$serialMonitor:TX",
+      "",
+      []
+    ],
+    [
+      "pir1:OUT",
+      "esp:14",
+      "green",
+      [
+        "h220",
+        "v210"
+      ]
+    ],
+    [
+      "dht1:SDA",
+      "esp:15",
+      "green",
+      [
+        "h35",
+        "v210"
+      ]
+    ],
+    [
+      "esp:GND.1",
+      "pir1:GND",
+      "black",
+      [
+        "v-260",
+        "h-255"
+      ]
+    ],
+    [
+      "pir1:VCC",
+      "esp:5V",
+      "red",
+      [
+        "h190",
+        "v250"
+      ]
+    ],
+    [
+      "dht1:VCC",
+      "esp:3V3",
+      "red",
+      [
+        "h80",
+        "v220"
+      ]
+    ],
+    [
+      "dht1:GND",
+      "esp:GND.2",
+      "black",
+      [
+        "v215"
+      ]
+    ],
+    [
+      "esp:3V3",
+      "rfid1:3.3V",
+      "red",
+      [
+        "v-180",
+        "h430"
+      ]
+    ],
+    [
+      "esp:GND.2",
+      "rfid1:GND",
+      "black",
+      [
+        "v-160",
+        "h430"
+      ]
+    ],
+    [
+      "esp:21",
+      "rfid1:RST",
+      "green",
+      [
+        "v-140",
+        "h430"
+      ]
+    ],
+    [
+      "esp:12",
+      "rfid1:SDA",
+      "green",
+      [
+        "v-120",
+        "h430"
+      ]
+    ],
+    [
+      "esp:26",
+      "rfid1:SCK",
+      "green",
+      [
+        "v-100",
+        "h430"
+      ]
+    ],
+    [
+      "esp:27",
+      "rfid1:MOSI",
+      "green",
+      [
+        "v-80",
+        "h430"
+      ]
+    ],
+    [
+      "esp:13",
+      "rfid1:MISO",
+      "green",
+      [
+        "v-60",
+        "h430"
+      ]
+    ],
+    [
+      "esp:GND.1",
+      "rfid1:IRQ",
+      "black",
+      [
+        "v-40",
+        "h430"
+      ]
+    ],
+    [
+      "bz1:1",
+      "esp:GND.3",
+      "black",
+      [
+        "h-70",
+        "v300"
+      ]
+    ],
+    [
+      "esp:25",
+      "bz1:2",
+      "green",
+      [
+        "v-290",
+        "h250"
+      ]
+    ],
+    [
+      "esp:19",
+      "acPowerLed:A",
+      "green",
+      [
+        "h-290",
+        "v-20",
+        "h-130"
+      ]
+    ],
+    [
+      "acPowerLed:C",
+      "acPowerR:1",
+      "green",
+      []
+    ],
+    [
+      "acPowerR:2",
+      "esp:GND.1",
+      "green",
+      [
+        "h230",
+        "v40"
+      ]
+    ],
+    [
+      "esp:23",
+      "acCoolingLed:A",
+      "green",
+      [
+        "h-290",
+        "v10",
+        "h-130"
+      ]
+    ],
+    [
+      "acCoolingLed:C",
+      "acCoolingR:1",
+      "green",
+      []
+    ],
+    [
+      "acCoolingR:2",
+      "esp:GND.1",
+      "green",
+      [
+        "h230",
+        "v20"
+      ]
+    ],
+    [
+      "esp:16",
+      "sr1:DS",
+      "green",
+      [
+        "v190",
+        "h-220"
+      ]
+    ],
+    [
+      "esp:17",
+      "sr1:SHCP",
+      "green",
+      [
+        "v205",
+        "h-220"
+      ]
+    ],
+    [
+      "esp:18",
+      "sr1:STCP",
+      "green",
+      [
+        "v220",
+        "h-220"
+      ]
+    ],
+    [
+      "esp:18",
+      "sr2:STCP",
+      "green",
+      [
+        "v220",
+        "h-80"
+      ]
+    ],
+    [
+      "esp:17",
+      "sr2:SHCP",
+      "green",
+      [
+        "v205",
+        "h-80"
+      ]
+    ],
+    [
+      "sr1:Q7S",
+      "sr2:DS",
+      "green",
+      []
+    ],
+    [
+      "esp:GND.1",
+      "sr1:OE",
+      "black",
+      [
+        "v240",
+        "h-220"
+      ]
+    ],
+    [
+      "esp:GND.1",
+      "sr2:OE",
+      "black",
+      [
+        "v240",
+        "h-80"
+      ]
+    ],
+    [
+      "esp:3V3",
+      "sr1:MR",
+      "red",
+      [
+        "v170",
+        "h-220"
+      ]
+    ],
+    [
+      "esp:3V3",
+      "sr2:MR",
+      "red",
+      [
+        "v170",
+        "h-80"
+      ]
+    ],
+    [
+      "esp:3V3",
+      "sr1:VCC",
+      "red",
+      [
+        "v155",
+        "h-220"
+      ]
+    ],
+    [
+      "esp:3V3",
+      "sr2:VCC",
+      "red",
+      [
+        "v155",
+        "h-80"
+      ]
+    ],
+    [
+      "esp:GND.1",
+      "sr1:GND",
+      "black",
+      [
+        "v255",
+        "h-220"
+      ]
+    ],
+    [
+      "esp:GND.1",
+      "sr2:GND",
+      "black",
+      [
+        "v255",
+        "h-80"
+      ]
+    ],
+    [
+      "sr1:Q0",
+      "w1:A",
+      "green",
+      []
+    ],
+    [
+      "w1:C",
+      "rw1:1",
+      "green",
+      []
+    ],
+    [
+      "rw1:2",
+      "esp:GND.1",
+      "green",
+      []
+    ],
+    [
+      "sr1:Q1",
+      "w2:A",
+      "green",
+      []
+    ],
+    [
+      "w2:C",
+      "rw2:1",
+      "green",
+      []
+    ],
+    [
+      "rw2:2",
+      "esp:GND.1",
+      "green",
+      []
+    ],
+    [
+      "sr1:Q2",
+      "w3:A",
+      "green",
+      []
+    ],
+    [
+      "w3:C",
+      "rw3:1",
+      "green",
+      []
+    ],
+    [
+      "rw3:2",
+      "esp:GND.1",
+      "green",
+      []
+    ],
+    [
+      "sr1:Q3",
+      "w4:A",
+      "green",
+      []
+    ],
+    [
+      "w4:C",
+      "rw4:1",
+      "green",
+      []
+    ],
+    [
+      "rw4:2",
+      "esp:GND.1",
+      "green",
+      []
+    ],
+    [
+      "sr1:Q4",
+      "w5:A",
+      "green",
+      []
+    ],
+    [
+      "w5:C",
+      "rw5:1",
+      "green",
+      []
+    ],
+    [
+      "rw5:2",
+      "esp:GND.1",
+      "green",
+      []
+    ],
+    [
+      "sr1:Q5",
+      "w6:A",
+      "green",
+      []
+    ],
+    [
+      "w6:C",
+      "rw6:1",
+      "green",
+      []
+    ],
+    [
+      "rw6:2",
+      "esp:GND.1",
+      "green",
+      []
+    ],
+    [
+      "sr1:Q6",
+      "w7:A",
+      "green",
+      []
+    ],
+    [
+      "w7:C",
+      "rw7:1",
+      "green",
+      []
+    ],
+    [
+      "rw7:2",
+      "esp:GND.1",
+      "green",
+      []
+    ],
+    [
+      "sr1:Q7",
+      "w8:A",
+      "green",
+      []
+    ],
+    [
+      "w8:C",
+      "rw8:1",
+      "green",
+      []
+    ],
+    [
+      "rw8:2",
+      "esp:GND.1",
+      "green",
+      []
+    ],
+    [
+      "sr2:Q0",
+      "w9:A",
+      "green",
+      []
+    ],
+    [
+      "w9:C",
+      "rw9:1",
+      "green",
+      []
+    ],
+    [
+      "rw9:2",
+      "esp:GND.1",
+      "green",
+      []
+    ],
+    [
+      "sr2:Q1",
+      "w10:A",
+      "green",
+      []
+    ],
+    [
+      "w10:C",
+      "rw10:1",
+      "green",
+      []
+    ],
+    [
+      "rw10:2",
+      "esp:GND.1",
+      "green",
+      []
+    ],
+    [
+      "sr2:Q2",
+      "f1:A",
+      "green",
+      []
+    ],
+    [
+      "f1:C",
+      "rf1:1",
+      "green",
+      []
+    ],
+    [
+      "rf1:2",
+      "esp:GND.1",
+      "green",
+      []
+    ],
+    [
+      "sr2:Q3",
+      "f2:A",
+      "green",
+      []
+    ],
+    [
+      "f2:C",
+      "rf2:1",
+      "green",
+      []
+    ],
+    [
+      "rf2:2",
+      "esp:GND.1",
+      "green",
+      []
+    ],
+    [
+      "sr2:Q4",
+      "f3:A",
+      "green",
+      []
+    ],
+    [
+      "f3:C",
+      "rf3:1",
+      "green",
+      []
+    ],
+    [
+      "rf3:2",
+      "esp:GND.1",
+      "green",
+      []
+    ],
+    [
+      "sr2:Q5",
+      "f4:A",
+      "green",
+      []
+    ],
+    [
+      "f4:C",
+      "rf4:1",
+      "green",
+      []
+    ],
+    [
+      "rf4:2",
+      "esp:GND.1",
+      "green",
+      []
+    ],
+    [
+      "sr2:Q6",
+      "f5:A",
+      "green",
+      []
+    ],
+    [
+      "f5:C",
+      "rf5:1",
+      "green",
+      []
+    ],
+    [
+      "rf5:2",
+      "esp:GND.1",
+      "green",
+      []
+    ],
+    [
+      "sr2:Q7",
+      "f6:A",
+      "green",
+      []
+    ],
+    [
+      "f6:C",
+      "rf6:1",
+      "green",
+      []
+    ],
+    [
+      "rf6:2",
+      "esp:GND.1",
+      "green",
+      []
+    ]
+  ],
+  "dependencies": {}
+}

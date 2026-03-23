@@ -50,7 +50,7 @@
         "id": "6e51d2d89df3c1d6",
         "type": "mqtt-broker",
         "name": "EMQX Public Broker",
-        "broker": "broker.emqx.io",
+        "broker": "broker.hivemq.com",
         "port": 1883,
         "clientid": "",
         "autoConnect": true,
@@ -225,7 +225,7 @@
         "type": "function",
         "z": "51ea9c70bb53699f",
         "name": "Enrich Telemetry",
-        "func": "let d = msg.payload;\nconst prevLast = flow.get(\"lastWokwiMqttMs\");\nconst nowMs = Date.now();\nconst gapMs = typeof prevLast === \"number\" && prevLast > 0 ? nowMs - prevLast : 0;\nflow.set(\"mqttGapMs\", gapMs);\n\nlet rawTelemetry = {\n    temperature: d.temperature,\n    motion: !!d.motion,\n    occupied: !!d.occupied,\n    light: Number(d.light || 0),\n    fan: Number(d.fan || 0),\n    mode: d.mode,\n    forceOff: !!d.forceOff,\n    afterHoursAlert: !!d.afterHoursAlert,\n    tempThreshold: Number(d.tempThreshold || 28)\n};\n\nflow.set(\"latestTelemetry\", rawTelemetry);\nflow.set(\"lastWokwiMqttMs\", nowMs);\n\nd.roomStatus = d.occupied ? \"Occupied\" : \"Empty\";\nd.lightStatus = d.light ? \"ON\" : \"OFF\";\nd.fanStatus = d.fan ? \"ON\" : \"OFF\";\nd.modeText = d.mode ? d.mode.toUpperCase() : \"UNKNOWN\";\nlet scheduleCheckerOn = flow.get(\"scheduleEnabled\");\nif (scheduleCheckerOn === undefined) {\n    scheduleCheckerOn = true;\n}\nif (!scheduleCheckerOn) {\n    d.collegeText = \"Schedule checker off (no auto lockout)\";\n} else if (d.forceOff) {\n    d.collegeText = \"Outside scheduled hours (08:00–18:00)\";\n} else {\n    d.collegeText = \"Within scheduled hours (08:00–18:00)\";\n}\n\nif (d.afterHoursAlert && d.motion) {\n    d.alertText = \"ALERT: Motion detected after college hours\";\n} else if (d.afterHoursAlert) {\n    d.alertText = \"After-hours monitoring active\";\n} else if (d.temperature >= 35) {\n    d.alertText = \"WARNING: High temperature emergency\";\n} else {\n    d.alertText = \"Normal\";\n}\n\nlet alertList = d.alertText && d.alertText !== \"Normal\" ? [d.alertText] : [];\n\nflow.set(\"latestDashboardSummary\", {\n    temperature: d.temperature,\n    occupied: !!d.occupied,\n    roomStatus: d.roomStatus,\n    light: Number(d.light || 0),\n    fan: Number(d.fan || 0),\n    mode: d.mode,\n    collegeHours: d.collegeText,\n    alerts: alertList,\n    occupancyTimer: flow.get(\"latestOccupancyTimer\") || \"0 min 0 sec\",\n    occupancySessions: flow.get(\"latestOccupancySessions\") || 0,\n    occupancySessionList: flow.get(\"latestOccupancySessionDetails\") || [],\n    estimatedEnergySaved: flow.get(\"latestEstimatedEnergySaved\") || \"0.00 Wh\",\n    highTempWarning: flow.get(\"latestHighTempWarning\") || \"No critical temperature alert\",\n    tempThreshold: Number(d.tempThreshold || 28),\n    afterHoursAlert: !!d.afterHoursAlert\n});\n\nmsg.payload = d;\nreturn msg;",
+        "func": "let d = msg.payload;\nconst prevLast = flow.get(\"lastWokwiMqttMs\");\nconst nowMs = Date.now();\nconst gapMs = typeof prevLast === \"number\" && prevLast > 0 ? nowMs - prevLast : 0;\nflow.set(\"mqttGapMs\", gapMs);\n\nconst LIGHT_TOTAL = 10;\nconst FAN_TOTAL = 6;\n\nfunction clampInt(v, lo, hi) {\n    const n = Number(v);\n    if (!Number.isFinite(n)) return lo;\n    return Math.max(lo, Math.min(hi, Math.floor(n)));\n}\n\nfunction maskFromCount(count, maxBits) {\n    const c = clampInt(count, 0, maxBits);\n    if (c <= 0) return 0;\n    if (c >= maxBits) return (1 << maxBits) - 1;\n    return (1 << c) - 1;\n}\n\nlet lightOnCount =\n    typeof d.lightOnCount === \"number\" && Number.isFinite(d.lightOnCount)\n        ? clampInt(d.lightOnCount, 0, LIGHT_TOTAL)\n        : d.light ? LIGHT_TOTAL : 0;\nlet fanOnCount =\n    typeof d.fanOnCount === \"number\" && Number.isFinite(d.fanOnCount)\n        ? clampInt(d.fanOnCount, 0, FAN_TOTAL)\n        : d.fan ? FAN_TOTAL : 0;\n\nlet lightsMask =\n    typeof d.lightsMask === \"number\" && Number.isFinite(d.lightsMask)\n        ? d.lightsMask\n        : maskFromCount(lightOnCount, 10);\nlet fansMask =\n    typeof d.fansMask === \"number\" && Number.isFinite(d.fansMask)\n        ? d.fansMask\n        : maskFromCount(fanOnCount, 6);\n\nlet acPower = d.acPower !== undefined ? !!d.acPower : true;\nlet acMode = typeof d.acMode === \"string\" ? d.acMode : d.mode === \"manual\" ? \"manual\" : \"auto\";\nlet acSetpoint = typeof d.acSetpoint === \"number\" && Number.isFinite(d.acSetpoint) ? d.acSetpoint : Number(d.tempThreshold || 28);\nlet acCoolingActive = d.acCoolingActive !== undefined ? !!d.acCoolingActive : (acPower && !d.forceOff && !!d.fan);\nlet acManualOverride = d.acManualOverride !== undefined ? !!d.acManualOverride : (acMode !== \"auto\" && fanOnCount > 0);\n\nconst attendanceEvent =\n    d.attendanceEvent && typeof d.attendanceEvent === \"object\" && typeof d.attendanceEvent.tagId === \"string\" ? d.attendanceEvent : null;\n\nd.lightOnCount = lightOnCount;\nd.lightTotal = LIGHT_TOTAL;\nd.lightsMask = lightsMask;\nd.fanOnCount = fanOnCount;\nd.fanTotal = FAN_TOTAL;\nd.fansMask = fansMask;\n\nd.acPower = acPower;\nd.acMode = acMode;\nd.acSetpoint = acSetpoint;\nd.acCoolingActive = acCoolingActive;\nd.acManualOverride = acManualOverride;\n\nd.attendanceEvent = attendanceEvent;\n\nlet rawTelemetry = {\n    temperature: d.temperature,\n    motion: !!d.motion,\n    occupied: !!d.occupied,\n    light: Number(d.light || 0),\n    fan: Number(d.fan || 0),\n    mode: d.mode,\n    forceOff: !!d.forceOff,\n    afterHoursAlert: !!d.afterHoursAlert,\n    tempThreshold: Number(d.tempThreshold || 28),\n\n    // Phase 1+ additions (optional for backward compatibility)\n    lightOnCount: lightOnCount,\n    lightTotal: LIGHT_TOTAL,\n    lightsMask: lightsMask,\n    fanOnCount: fanOnCount,\n    fanTotal: FAN_TOTAL,\n    fansMask: fansMask,\n\n    acPower: acPower,\n    acMode: acMode,\n    acSetpoint: acSetpoint,\n    acCoolingActive: acCoolingActive,\n    acManualOverride: acManualOverride,\n\n    attendanceEvent: attendanceEvent\n};\n\nflow.set(\"latestTelemetry\", rawTelemetry);\nflow.set(\"lastWokwiMqttMs\", nowMs);\n\nd.roomStatus = d.occupied ? \"Occupied\" : \"Empty\";\nd.lightStatus = d.light ? \"ON\" : \"OFF\";\nd.fanStatus = d.fan ? \"ON\" : \"OFF\";\nd.modeText = d.mode ? d.mode.toUpperCase() : \"UNKNOWN\";\nlet scheduleCheckerOn = flow.get(\"scheduleEnabled\");\nif (scheduleCheckerOn === undefined) {\n    scheduleCheckerOn = true;\n}\nif (!scheduleCheckerOn) {\n    d.collegeText = \"Schedule checker off (no auto lockout)\";\n} else if (d.forceOff) {\n    d.collegeText = \"Outside scheduled hours (08:00–18:00)\";\n} else {\n    d.collegeText = \"Within scheduled hours (08:00–18:00)\";\n}\n\nif (d.afterHoursAlert && d.motion) {\n    d.alertText = \"ALERT: Motion detected after college hours\";\n} else if (d.afterHoursAlert) {\n    d.alertText = \"After-hours monitoring active\";\n} else if (d.temperature >= 35) {\n    d.alertText = \"WARNING: High temperature emergency\";\n} else {\n    d.alertText = \"Normal\";\n}\n\nlet alertList = d.alertText && d.alertText !== \"Normal\" ? [d.alertText] : [];\n\nflow.set(\"latestDashboardSummary\", {\n    temperature: d.temperature,\n    occupied: !!d.occupied,\n    roomStatus: d.roomStatus,\n    light: Number(d.light || 0),\n    fan: Number(d.fan || 0),\n    mode: d.mode,\n    collegeHours: d.collegeText,\n    alerts: alertList,\n    occupancyTimer: flow.get(\"latestOccupancyTimer\") || \"0 min 0 sec\",\n    occupancySessions: flow.get(\"latestOccupancySessions\") || 0,\n    occupancySessionList: flow.get(\"latestOccupancySessionDetails\") || [],\n    estimatedEnergySaved: flow.get(\"latestEstimatedEnergySaved\") || \"0.00 Wh\",\n    highTempWarning: flow.get(\"latestHighTempWarning\") || \"No critical temperature alert\",\n    tempThreshold: Number(d.tempThreshold || 28),\n    afterHoursAlert: !!d.afterHoursAlert,\n\n    // Phase 1+ additions (safe for old frontend)\n    lightOnCount: lightOnCount,\n    lightTotal: LIGHT_TOTAL,\n    fanOnCount: fanOnCount,\n    fanTotal: FAN_TOTAL,\n    acPower: acPower,\n    acMode: acMode,\n    acSetpoint: acSetpoint,\n    acCoolingActive: acCoolingActive,\n    acManualOverride: acManualOverride,\n    attendanceEvent: attendanceEvent\n});\n\nmsg.payload = d;\nreturn msg;",
         "outputs": 1,
         "timeout": 0,
         "noerr": 0,
@@ -250,7 +250,28 @@
                 "ec9800cbd5cad990",
                 "bcfef89dfcc78679",
                 "79ca6ac5c19b654e",
-                "f8a01c2de4b53910"
+                "f8a01c2de4b53910",
+                "aa1b2c3d4e5f6789"
+            ]
+        ]
+    },
+    {
+        "id": "aa1b2c3d4e5f6789",
+        "type": "function",
+        "z": "51ea9c70bb53699f",
+        "name": "AC Automation Command (hysteresis/cooldown)",
+        "func": "let d = msg.payload || {};\nconst now = Date.now();\n\nconst acMode = typeof d.acMode === \"string\" ? d.acMode : d.mode === \"manual\" ? \"manual\" : \"auto\";\nif (acMode !== \"auto\") return null;\n\n// Schedule lockout + manual off\nif (d.forceOff) return null;\nif (!d.occupied) return null;\n\nconst acPower = d.acPower !== undefined ? !!d.acPower : true;\nif (!acPower) return null;\n\nconst temperature = typeof d.temperature === \"number\" && Number.isFinite(d.temperature) ? d.temperature : null;\nif (temperature == null) return null;\n\nlet baseSetpoint = flow.get(\"acBaseSetpoint\");\nif (typeof baseSetpoint !== \"number\" || !Number.isFinite(baseSetpoint)) {\n    baseSetpoint = typeof d.tempThreshold === \"number\" && Number.isFinite(d.tempThreshold) ? d.tempThreshold : 28;\n}\n\nconst HYST_ON = 0.7;  // cool ON when temp > base + HYST_ON\nconst HYST_OFF = 0.4; // cool OFF when temp < base - HYST_OFF\nconst COOLDOWN_MS = 120000;\n\nconst last = flow.get(\"acAutoLastCmdAtMs\");\nif (typeof last === \"number\" && (now - last) < COOLDOWN_MS) {\n    return null;\n}\n\nconst coolingActive = d.acCoolingActive !== undefined ? !!d.acCoolingActive : !!d.fan;\n\nlet cmd = null;\nif (!coolingActive) {\n    if (temperature > baseSetpoint + HYST_ON) {\n        // Lower setpoint to keep cooling active until we drop under base - HYST_OFF.\n        cmd = { acMode: \"auto\", acSetpoint: baseSetpoint - HYST_OFF };\n    }\n} else {\n    if (temperature < baseSetpoint - HYST_OFF) {\n        // Raise setpoint to keep cooling inactive until we rise over base + HYST_ON.\n        cmd = { acMode: \"auto\", acSetpoint: baseSetpoint + HYST_ON };\n    }\n}\n\nif (!cmd) return null;\n\nflow.set(\"acAutoLastCmdAtMs\", now);\nmsg.payload = JSON.stringify(cmd);\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1650,
+        "y": 180,
+        "wires": [
+            [
+                "1115c0a1bb20b4ed"
             ]
         ]
     },
@@ -259,7 +280,7 @@
         "type": "function",
         "z": "51ea9c70bb53699f",
         "name": "Prepare storage POST",
-        "func": "let d = msg.payload;\nconst gap = Number(flow.get(\"mqttGapMs\")) || 0;\nconst STORAGE_GAP_OK_MS = 10000;\nconst pipelineLive = gap <= STORAGE_GAP_OK_MS;\nmsg.headers = { \"Content-Type\": \"application/json\" };\nmsg.payload = {\n    receivedAt: Date.now(),\n    temperature: typeof d.temperature === \"number\" ? d.temperature : null,\n    motion: !!d.motion,\n    occupied: !!d.occupied,\n    light: d.light ? 1 : 0,\n    fan: d.fan ? 1 : 0,\n    mode: d.mode || \"auto\",\n    tempThreshold: typeof d.tempThreshold === \"number\" ? d.tempThreshold : 28,\n    pipelineLive\n};\nreturn msg;",
+        "func": "let d = msg.payload;\nconst gap = Number(flow.get(\"mqttGapMs\")) || 0;\nconst STORAGE_GAP_OK_MS = 10000;\nconst pipelineLive = gap <= STORAGE_GAP_OK_MS;\nmsg.headers = { \"Content-Type\": \"application/json\" };\n\nconst lightOnCount = typeof d.lightOnCount === \"number\" && Number.isFinite(d.lightOnCount) ? d.lightOnCount : d.light ? 10 : 0;\nconst fanOnCount = typeof d.fanOnCount === \"number\" && Number.isFinite(d.fanOnCount) ? d.fanOnCount : d.fan ? 6 : 0;\n\nmsg.payload = {\n    receivedAt: Date.now(),\n    temperature: typeof d.temperature === \"number\" ? d.temperature : null,\n    motion: !!d.motion,\n    occupied: !!d.occupied,\n\n    // Backward compatible 0/1 fields for existing telemetry/storage consumers\n    light: d.light ? 1 : 0,\n    fan: d.fan ? 1 : 0,\n    mode: d.mode || \"auto\",\n    tempThreshold: typeof d.tempThreshold === \"number\" ? d.tempThreshold : 28,\n\n    // Phase 1 additions (counts/masks + AC)\n    lightOnCount,\n    lightTotal: 10,\n    lightsMask: typeof d.lightsMask === \"number\" && Number.isFinite(d.lightsMask) ? d.lightsMask : undefined,\n\n    fanOnCount,\n    fanTotal: 6,\n    fansMask: typeof d.fansMask === \"number\" && Number.isFinite(d.fansMask) ? d.fansMask : undefined,\n\n    acPower: typeof d.acPower === \"boolean\" ? d.acPower : undefined,\n    acMode: typeof d.acMode === \"string\" ? d.acMode : undefined,\n    acSetpoint: typeof d.acSetpoint === \"number\" && Number.isFinite(d.acSetpoint) ? d.acSetpoint : undefined,\n    acCoolingActive: typeof d.acCoolingActive === \"boolean\" ? d.acCoolingActive : undefined,\n    acManualOverride: typeof d.acManualOverride === \"boolean\" ? d.acManualOverride : undefined,\n\n    // Attendance event ingest into storage bridge\n    attendanceEvent: d.attendanceEvent && typeof d.attendanceEvent === \"object\" ? d.attendanceEvent : null,\n\n    pipelineLive\n};\nreturn msg;",
         "outputs": 1,
         "timeout": 0,
         "noerr": 0,
@@ -1238,7 +1259,7 @@
         "type": "function",
         "z": "51ea9c70bb53699f",
         "name": "Schedule Checker",
-        "func": "function scheduleMsFromMidnight(now, timeZone) {\n    if (!timeZone) {\n        return ((now.getHours() * 60 + now.getMinutes()) * 60 + now.getSeconds()) * 1000 +\n            now.getMilliseconds();\n    }\n    const parts = new Intl.DateTimeFormat(\"en-GB\", {\n        timeZone: timeZone,\n        hour: \"2-digit\",\n        minute: \"2-digit\",\n        second: \"2-digit\",\n        hour12: false,\n    }).formatToParts(now);\n    const num = (type) => {\n        const p = parts.find((x) => x.type === type);\n        return p ? Number(p.value) : 0;\n    };\n    return ((num(\"hour\") * 60 + num(\"minute\")) * 60 + num(\"second\")) * 1000;\n}\n\nlet scheduleEnabled = flow.get(\"scheduleEnabled\");\nif (scheduleEnabled === undefined) {\n    scheduleEnabled = true;\n    flow.set(\"scheduleEnabled\", true);\n}\n\nif (!scheduleEnabled) {\n    return null;\n}\n\n// flow.scheduleTimeZone set by dashboard GET /api/schedule-state?classroomTz=… ; else env CLASSROOM_TIMEZONE ; else Node local (Docker default UTC)\nconst schedTz = flow.get(\"scheduleTimeZone\") || process.env.CLASSROOM_TIMEZONE || \"\";\nlet now = new Date();\nlet msFromMidnight = scheduleMsFromMidnight(now, schedTz);\nconst START_MS = 8 * 60 * 60 * 1000;\nconst END_MS = 18 * 60 * 60 * 1000;\nlet inScheduledHours = msFromMidnight >= START_MS && msFromMidnight < END_MS;\n\nmsg.payload = JSON.stringify({\n    forceOff: !inScheduledHours,\n    afterHoursAlert: !inScheduledHours\n});\n\nreturn msg;",
+        "func": "function scheduleMsFromMidnight(now, timeZone) {\n    if (!timeZone) {\n        return ((now.getHours() * 60 + now.getMinutes()) * 60 + now.getSeconds()) * 1000 +\n            now.getMilliseconds();\n    }\n    const parts = new Intl.DateTimeFormat(\"en-GB\", {\n        timeZone: timeZone,\n        hour: \"2-digit\",\n        minute: \"2-digit\",\n        second: \"2-digit\",\n        hour12: false,\n    }).formatToParts(now);\n    const num = (type) => {\n        const p = parts.find((x) => x.type === type);\n        return p ? Number(p.value) : 0;\n    };\n    return ((num(\"hour\") * 60 + num(\"minute\")) * 60 + num(\"second\")) * 1000;\n}\n\nlet scheduleEnabled = flow.get(\"scheduleEnabled\");\nif (scheduleEnabled === undefined) {\n    scheduleEnabled = true;\n    flow.set(\"scheduleEnabled\", true);\n}\n\nif (!scheduleEnabled) {\n    return null;\n}\n\n// flow.scheduleTimeZone set by dashboard GET /api/schedule-state?classroomTz=… ; else env CLASSROOM_TIMEZONE ; else Node local (Docker default UTC)\nconst schedTz = flow.get(\"scheduleTimeZone\") || env.get('CLASSROOM_TIMEZONE') || \"\";\nlet now = new Date();\nlet msFromMidnight = scheduleMsFromMidnight(now, schedTz);\nconst START_MS = 8 * 60 * 60 * 1000;\nconst END_MS = 18 * 60 * 60 * 1000;\nlet inScheduledHours = msFromMidnight >= START_MS && msFromMidnight < END_MS;\n\nmsg.payload = JSON.stringify({\n    forceOff: !inScheduledHours,\n    afterHoursAlert: !inScheduledHours,\n    acPower: inScheduledHours\n});\n\nreturn msg;",
         "outputs": 1,
         "timeout": 0,
         "noerr": 0,
@@ -1297,7 +1318,7 @@
         "type": "function",
         "z": "51ea9c70bb53699f",
         "name": "Toggle Schedule Checker",
-        "func": "function scheduleMsFromMidnight(now, timeZone) {\n    if (!timeZone) {\n        return ((now.getHours() * 60 + now.getMinutes()) * 60 + now.getSeconds()) * 1000 +\n            now.getMilliseconds();\n    }\n    const parts = new Intl.DateTimeFormat(\"en-GB\", {\n        timeZone: timeZone,\n        hour: \"2-digit\",\n        minute: \"2-digit\",\n        second: \"2-digit\",\n        hour12: false,\n    }).formatToParts(now);\n    const num = (type) => {\n        const p = parts.find((x) => x.type === type);\n        return p ? Number(p.value) : 0;\n    };\n    return ((num(\"hour\") * 60 + num(\"minute\")) * 60 + num(\"second\")) * 1000;\n}\n\nlet enabled = flow.get(\"scheduleEnabled\");\nif (enabled === undefined) {\n    enabled = true;\n}\n\nenabled = !enabled;\nflow.set(\"scheduleEnabled\", enabled);\n\nif (!enabled) {\n    msg.payload = JSON.stringify({\n        forceOff: false,\n        afterHoursAlert: false\n    });\n    return msg;\n}\n\nconst schedTz = flow.get(\"scheduleTimeZone\") || process.env.CLASSROOM_TIMEZONE || \"\";\nlet now = new Date();\nlet msFromMidnight = scheduleMsFromMidnight(now, schedTz);\nconst START_MS = 8 * 60 * 60 * 1000;\nconst END_MS = 18 * 60 * 60 * 1000;\nlet inScheduledHours = msFromMidnight >= START_MS && msFromMidnight < END_MS;\n\nmsg.payload = JSON.stringify({\n    forceOff: !inScheduledHours,\n    afterHoursAlert: !inScheduledHours\n});\nreturn msg;",
+        "func": "function scheduleMsFromMidnight(now, timeZone) {\n    if (!timeZone) {\n        return ((now.getHours() * 60 + now.getMinutes()) * 60 + now.getSeconds()) * 1000 +\n            now.getMilliseconds();\n    }\n    const parts = new Intl.DateTimeFormat(\"en-GB\", {\n        timeZone: timeZone,\n        hour: \"2-digit\",\n        minute: \"2-digit\",\n        second: \"2-digit\",\n        hour12: false,\n    }).formatToParts(now);\n    const num = (type) => {\n        const p = parts.find((x) => x.type === type);\n        return p ? Number(p.value) : 0;\n    };\n    return ((num(\"hour\") * 60 + num(\"minute\")) * 60 + num(\"second\")) * 1000;\n}\n\nlet enabled = flow.get(\"scheduleEnabled\");\nif (enabled === undefined) {\n    enabled = true;\n}\n\nenabled = !enabled;\nflow.set(\"scheduleEnabled\", enabled);\n\nif (!enabled) {\n    msg.payload = JSON.stringify({\n        forceOff: false,\n        afterHoursAlert: false,\n        acPower: true\n    });\n    return msg;\n}\n\nconst schedTz = flow.get(\"scheduleTimeZone\") || env.get('CLASSROOM_TIMEZONE') || \"\";\nlet now = new Date();\nlet msFromMidnight = scheduleMsFromMidnight(now, schedTz);\nconst START_MS = 8 * 60 * 60 * 1000;\nconst END_MS = 18 * 60 * 60 * 1000;\nlet inScheduledHours = msFromMidnight >= START_MS && msFromMidnight < END_MS;\n\nmsg.payload = JSON.stringify({\n    forceOff: !inScheduledHours,\n    afterHoursAlert: !inScheduledHours,\n    acPower: inScheduledHours\n});\nreturn msg;",
         "outputs": 1,
         "timeout": 0,
         "noerr": 0,
@@ -1955,7 +1976,7 @@
         "type": "function",
         "z": "51ea9c70bb53699f",
         "name": "API Command Normalizer",
-        "func": "let cmd = msg.payload;\n\nif (typeof cmd === \"string\") {\n    try {\n        cmd = JSON.parse(cmd);\n    } catch (e) {\n        return [null, { statusCode: 400, payload: { ok: false, error: \"Invalid JSON body\" } }];\n    }\n}\n\nif (!cmd || typeof cmd !== \"object\" || Array.isArray(cmd)) {\n    return [null, { statusCode: 400, payload: { ok: false, error: \"Command body must be a JSON object\" } }];\n}\n\nmsg._apiCommand = cmd;\nmsg.payload = JSON.stringify(cmd);\nreturn [msg, null];",
+        "func": "let cmd = msg.payload;\n\nif (typeof cmd === \"string\") {\n    try {\n        cmd = JSON.parse(cmd);\n    } catch (e) {\n        return [null, { statusCode: 400, payload: { ok: false, error: \"Invalid JSON body\" } }];\n    }\n}\n\nif (!cmd || typeof cmd !== \"object\" || Array.isArray(cmd)) {\n    return [null, { statusCode: 400, payload: { ok: false, error: \"Command body must be a JSON object\" } }];\n}\n\n// Track user-set setpoint as the AC automation baseline (used by Phase 2 hysteresis logic).\nconst maybeSetpoint =\n    (typeof cmd.acSetpoint === \"number\" && Number.isFinite(cmd.acSetpoint))\n        ? cmd.acSetpoint\n        : (typeof cmd.tempThreshold === \"number\" && Number.isFinite(cmd.tempThreshold))\n            ? cmd.tempThreshold\n            : null;\nif (maybeSetpoint != null) {\n    flow.set(\"acBaseSetpoint\", maybeSetpoint);\n    flow.set(\"acBaseSetpointUpdatedAtMs\", Date.now());\n}\n\nmsg._apiCommand = cmd;\nmsg.payload = JSON.stringify(cmd);\nreturn [msg, null];",
         "outputs": 2,
         "timeout": 0,
         "noerr": 0,
@@ -2063,7 +2084,7 @@
         "type": "function",
         "z": "51ea9c70bb53699f",
         "name": "API AI Report Prepare",
-        "func": "const isoNow = () => new Date().toISOString();\n\nfunction num(x, def) {\n    const n = Number(x);\n    return Number.isFinite(n) ? n : def;\n}\n\nfunction readBody(m) {\n    let body = m.req && m.req.body;\n    if (typeof body === \"string\") {\n        try { body = JSON.parse(body); } catch (e) { body = {}; }\n    }\n    return body && typeof body === \"object\" ? body : {};\n}\n\nconst body = msg._replyHttp ? readBody(msg) : (msg.payload && typeof msg.payload === \"object\" ? msg.payload : {});\nconst highQuality = body.highQuality === true || body.demoMode === true || body.screenshotMode === true;\n\nconst apiKeyRaw = env.get(\"GROQ_API_KEY\");\nlet apiKey = String(apiKeyRaw || \"\").trim();\nif (apiKey.length >= 2 && ((apiKey.charCodeAt(0) === 34 && apiKey.charCodeAt(apiKey.length - 1) === 34) || (apiKey.charCodeAt(0) === 39 && apiKey.charCodeAt(apiKey.length - 1) === 39))) {\n    apiKey = apiKey.slice(1, -1).trim();\n}\n\nconst defaultModel = String(env.get(\"GROQ_MODEL\") || \"\").trim() || \"openai/gpt-oss-20b\";\nconst hqModel = String(env.get(\"GROQ_MODEL_HIGH_QUALITY\") || \"\").trim() || \"openai/gpt-oss-120b\";\nconst model = highQuality && hqModel ? hqModel : defaultModel;\n\nconst tel = flow.get(\"latestTelemetry\") || {};\nconst summary = flow.get(\"latestDashboardSummary\") || {};\nconst ml = flow.get(\"latestMl\") || {};\n\nlet scheduleEnabled = flow.get(\"scheduleEnabled\");\nif (scheduleEnabled === undefined) scheduleEnabled = true;\n\nconst lastMqtt = flow.get(\"lastWokwiMqttMs\");\n\nconst state = {\n    temperature: num(tel.temperature, null),\n    motion: !!tel.motion,\n    occupied: !!tel.occupied,\n    light: tel.light ? 1 : 0,\n    fan: tel.fan ? 1 : 0,\n    mode: tel.mode || \"unknown\",\n    forceOff: !!tel.forceOff,\n    afterHoursAlert: !!tel.afterHoursAlert,\n    tempThreshold: num(tel.tempThreshold, 28),\n    roomStatus: summary.roomStatus || (tel.occupied ? \"Occupied\" : \"Empty\"),\n    collegeHours: summary.collegeHours || \"\",\n    alerts: Array.isArray(summary.alerts) ? summary.alerts : [],\n    occupancyTimer: summary.occupancyTimer || \"\",\n    estimatedEnergySaved: summary.estimatedEnergySaved || \"\",\n    highTempWarning: summary.highTempWarning || \"\",\n    scheduleEnabled,\n    lastWokwiMqttMs: typeof lastMqtt === \"number\" ? lastMqtt : null,\n    mlPredictedTemp: num(ml.predictedTemp, null),\n    mlConfidence: num(ml.confidence, null),\n    mlAnomaly: !!ml.anomaly,\n    mlAssist: !!ml.assist,\n    mlStatusText: typeof ml.statusText === \"string\" ? ml.statusText : \"\"\n};\n\nfunction buildFallback(s) {\n    let line1 = \"Classroom status: telemetry unavailable; awaiting live MQTT data.\";\n    if (s.temperature != null || s.occupied !== undefined) {\n        const occ = s.occupied ? \"occupied\" : \"unoccupied\";\n        const temp = s.temperature != null ? s.temperature.toFixed(1) + \"°C\" : \"unknown temperature\";\n        line1 = \"Classroom is \" + occ + \" at \" + temp + \"; light \" + (s.light ? \"ON\" : \"OFF\") + \", fan \" + (s.fan ? \"ON\" : \"OFF\") + \", mode \" + String(s.mode || \"auto\").toUpperCase() + \".\";\n    }\n    if (s.forceOff) {\n        line1 = \"Outside scheduled college hours: automation requires lights and fan to remain OFF.\";\n    }\n\n    let line2 = \"Comfort: readings are within expected band for the current threshold.\";\n    if (s.temperature != null && s.temperature > s.tempThreshold + 0.5) {\n        line2 = \"Comfort: temperature exceeds the \" + s.tempThreshold + \"°C threshold — increase cooling or airflow.\";\n    } else if (s.temperature != null && s.temperature < 18) {\n        line2 = \"Comfort: room is cool; verify heating setpoints if occupants complain.\";\n    }\n    if (s.forceOff) {\n        line2 = \"Comfort: outside-hours policy overrides comfort actuation; devices stay off.\";\n    }\n\n    let line3 = \"Energy: estimated savings indicator — \" + (s.estimatedEnergySaved || \"n/a\") + \".\";\n    if (!s.light && !s.fan) {\n        line3 = \"Energy: no active HVAC lighting loads — good standby efficiency.\";\n    } else {\n        line3 = \"Energy: loads are active; align usage with occupancy and schedule to save energy.\";\n    }\n\n    let line4 = \"Action: keep AUTO mode and monitor the dashboard trends.\";\n    if (s.afterHoursAlert && s.motion) {\n        line1 = \"After-hours alert: motion detected while the room should be vacant.\";\n        line4 = \"Action: investigate possible intrusion or unauthorized access after hours.\";\n    }\n    if (s.forceOff) {\n        line4 = \"Action: do not force devices on outside college hours unless policy permits.\";\n    }\n    if (s.mlAnomaly) {\n        line4 = line4 + \" ML reports a cooling-efficiency anomaly — check fan and temperature rise.\";\n    }\n    if (s.highTempWarning && /EMERGENCY|critically|critical/i.test(s.highTempWarning)) {\n        line2 = \"Comfort: CRITICAL high temperature — safety risk.\";\n        line4 = \"Action: immediate environmental check; reduce heat sources and escalate if needed.\";\n    }\n\n    return [line1, line2, line3, line4].join(\"\\n\");\n}\n\nconst fallbackText = buildFallback(state);\nmsg._fallbackSummary = fallbackText;\n\nconst systemPrompt = \"You are an AI assistant for a smart classroom automation system.\\n\" +\n    \"Given the latest classroom telemetry, schedule state, and ML insight, return a short professional response in exactly 4 lines:\\n\" +\n    \"1. Classroom status\\n\" +\n    \"2. Comfort status\\n\" +\n    \"3. Energy efficiency observation\\n\" +\n    \"4. Recommended action\\n\" +\n    \"\\n\" +\n    \"Rules:\\n\" +\n    \"- If forceOff=true, clearly say the classroom is outside college hours and devices must remain OFF\\n\" +\n    \"- If afterHoursAlert=true and motion=true, mention possible after-hours intrusion\\n\" +\n    \"- Consider occupancy, light, fan, mode, temperature, threshold, schedule status, ML forecast, and anomaly state if available\\n\" +\n    \"- Keep the answer short, professional, and dashboard-friendly\\n\" +\n    \"- Avoid markdown bullets unless needed\\n\" +\n    \"- Keep each line concise\";\n\nconst userBlock = JSON.stringify(state, null, 2);\n\nmsg._usedModel = model;\nmsg._sourceLabel = \"groq\";\n\nif (!apiKey) {\n    msg.skipGroq = true;\n    msg._prebuiltResponse = {\n        ok: true,\n        summary: fallbackText,\n        generatedAt: isoNow(),\n        model: \"fallback\",\n        source: \"local\"\n    };\n    return msg;\n}\n\nmsg.skipGroq = false;\nmsg._groqChatPayload = {\n    model: model,\n    messages: [\n        { role: \"system\", content: systemPrompt },\n        { role: \"user\", content: \"Latest classroom state (JSON):\\n\" + userBlock }\n    ],\n    temperature: 0.35,\n    max_tokens: 450\n};\n\nreturn msg;",
+        "func": "const isoNow = () => new Date().toISOString();\n\nfunction num(x, def) {\n    const n = Number(x);\n    return Number.isFinite(n) ? n : def;\n}\n\nfunction readBody(m) {\n    let body = m.req && m.req.body;\n    if (typeof body === \"string\") {\n        try { body = JSON.parse(body); } catch (e) { body = {}; }\n    }\n    return body && typeof body === \"object\" ? body : {};\n}\n\nconst body = msg._replyHttp ? readBody(msg) : (msg.payload && typeof msg.payload === \"object\" ? msg.payload : {});\nconst highQuality = body.highQuality === true || body.demoMode === true || body.screenshotMode === true;\n\nconst apiKeyRaw = env.get(\"GROQ_API_KEY\");\nlet apiKey = String(apiKeyRaw || \"\").trim();\nif (apiKey.length >= 2 && ((apiKey.charCodeAt(0) === 34 && apiKey.charCodeAt(apiKey.length - 1) === 34) || (apiKey.charCodeAt(0) === 39 && apiKey.charCodeAt(apiKey.length - 1) === 39))) {\n    apiKey = apiKey.slice(1, -1).trim();\n}\n\nconst defaultModel = String(env.get(\"GROQ_MODEL\") || \"\").trim() || \"openai/gpt-oss-20b\";\nconst hqModel = String(env.get(\"GROQ_MODEL_HIGH_QUALITY\") || \"\").trim() || \"openai/gpt-oss-120b\";\nconst model = highQuality && hqModel ? hqModel : defaultModel;\n\nconst tel = flow.get(\"latestTelemetry\") || {};\nconst summary = flow.get(\"latestDashboardSummary\") || {};\nconst ml = flow.get(\"latestMl\") || {};\n\nlet scheduleEnabled = flow.get(\"scheduleEnabled\");\nif (scheduleEnabled === undefined) scheduleEnabled = true;\n\nconst lastMqtt = flow.get(\"lastWokwiMqttMs\");\n\nconst state = {\n    temperature: num(tel.temperature, null),\n    motion: !!tel.motion,\n    occupied: !!tel.occupied,\n\n    // Backward-compatible binary control flags\n    light: tel.light ? 1 : 0,\n    fan: tel.fan ? 1 : 0,\n    mode: tel.mode || \"unknown\",\n    forceOff: !!tel.forceOff,\n    afterHoursAlert: !!tel.afterHoursAlert,\n    tempThreshold: num(tel.tempThreshold, 28),\n\n    // Phase 1+: expanded device state (if present in telemetry)\n    lightOnCount: num(tel.lightOnCount, null),\n    lightTotal: num(tel.lightTotal, null),\n    lightsMask: typeof tel.lightsMask === \"number\" ? tel.lightsMask : null,\n\n    fanOnCount: num(tel.fanOnCount, null),\n    fanTotal: num(tel.fanTotal, null),\n    fansMask: typeof tel.fansMask === \"number\" ? tel.fansMask : null,\n\n    // Phase 1+: AC state (if present in telemetry)\n    acPower: typeof tel.acPower === \"boolean\" ? tel.acPower : null,\n    acMode: typeof tel.acMode === \"string\" ? tel.acMode : null,\n    acSetpoint: num(tel.acSetpoint, null),\n    acCoolingActive: typeof tel.acCoolingActive === \"boolean\" ? tel.acCoolingActive : null,\n    acManualOverride: typeof tel.acManualOverride === \"boolean\" ? tel.acManualOverride : null,\n\n    roomStatus: summary.roomStatus || (tel.occupied ? \"Occupied\" : \"Empty\"),\n    collegeHours: summary.collegeHours || \"\",\n    alerts: Array.isArray(summary.alerts) ? summary.alerts : [],\n    occupancyTimer: summary.occupancyTimer || \"\",\n    estimatedEnergySaved: summary.estimatedEnergySaved || \"\",\n    highTempWarning: summary.highTempWarning || \"\",\n\n    scheduleEnabled,\n\n    // Telemetry freshness (ms since last MQTT sample)\n    pipelineAgeMs: typeof lastMqtt === \"number\" ? Date.now() - lastMqtt : null,\n\n    lastWokwiMqttMs: typeof lastMqtt === \"number\" ? lastMqtt : null,\n\n    // ML insight\n    mlPredictedTemp: num(ml.predictedTemp, null),\n    mlConfidence: num(ml.confidence, null),\n    mlAnomaly: !!ml.anomaly,\n    mlAssist: !!ml.assist,\n    mlStatusText: typeof ml.statusText === \"string\" ? ml.statusText : \"\"\n};\n\nfunction buildFallback(s) {\n    function fmtNum(n, digits = 1) {\n        if (typeof n !== \"number\" || !Number.isFinite(n)) return null;\n        return n.toFixed(digits);\n    }\n\n    function fmtTemp(t) {\n        const v = fmtNum(t, 1);\n        return v == null ? \"NA\" : v + \"°C\";\n    }\n\n    function fmtCount(onCount, totalCount, binaryOn) {\n        const on = typeof onCount === \"number\" && Number.isFinite(onCount) ? onCount : null;\n        const total = typeof totalCount === \"number\" && Number.isFinite(totalCount) ? totalCount : null;\n        if (on != null && total != null && total > 0) return `${on}/${total}`;\n        return binaryOn ? \"ON\" : \"OFF\";\n    }\n\n    const occ = s.occupied ? \"Occupied\" : \"Empty\";\n    const mode = typeof s.mode === \"string\" && s.mode ? s.mode.toUpperCase() : \"—\";\n\n    const lights = fmtCount(s.lightOnCount, s.lightTotal, s.light === 1);\n    const fans = fmtCount(s.fanOnCount, s.fanTotal, s.fan === 1);\n\n    const temp = fmtTemp(s.temperature);\n    const threshold = typeof s.tempThreshold === \"number\" && Number.isFinite(s.tempThreshold) ? `${s.tempThreshold.toFixed(1)}°C` : \"—\";\n\n    let comfort = \"Comfort: waiting for temperature\";\n    if (typeof s.temperature === \"number\" && Number.isFinite(s.temperature) && typeof s.tempThreshold === \"number\" && Number.isFinite(s.tempThreshold)) {\n        const t = s.temperature;\n        if (t > s.tempThreshold + 0.5) comfort = \"Comfort: ABOVE threshold (cooling recommended)\";\n        else if (t < 18) comfort = \"Comfort: room is cool (check heating if needed)\";\n        else comfort = \"Comfort: within expected band\";\n    }\n\n    const acPower = typeof s.acPower === \"boolean\" ? (s.acPower ? \"ON\" : \"OFF\") : \"—\";\n    const acMode = typeof s.acMode === \"string\" && s.acMode ? s.acMode.toUpperCase() : \"—\";\n    const acSetpoint =\n        typeof s.acSetpoint === \"number\" && Number.isFinite(s.acSetpoint) ? `${s.acSetpoint.toFixed(0)}°C` : \"—\";\n    const cooling =\n        typeof s.acCoolingActive === \"boolean\" ? (s.acCoolingActive ? \"active\" : \"inactive\") : \"—\";\n\n    const scheduleLine = s.forceOff\n        ? \"Schedule: Outside hours (lights/fan forced OFF)\"\n        : \"Schedule: Inside hours\";\n    const afterLine =\n        s.afterHoursAlert && s.motion ? \" · After-hours motion detected\" : \"\";\n    const mlLine =\n        typeof s.mlPredictedTemp === \"number\" && Number.isFinite(s.mlPredictedTemp)\n            ? `ML Insight: Pred ${s.mlPredictedTemp.toFixed(1)}°C · Conf ${typeof s.mlConfidence === \"number\" && Number.isFinite(s.mlConfidence) ? Math.round(s.mlConfidence * 100) + \"%\" : \"—\"} · Anomaly ${s.mlAnomaly ? \"YES\" : \"NO\"}`\n            : `ML Insight: predicted temp unavailable`;\n\n    let action = \"Recommended action: keep current settings and monitor\";\n    if (s.forceOff) action = \"Recommended action: outside hours; keep devices OFF\";\n    else if (s.afterHoursAlert && s.motion) action = \"Recommended action: investigate after-hours motion/intrusion\";\n    else if (typeof s.temperature === \"number\" && Number.isFinite(s.temperature) && typeof s.tempThreshold === \"number\" && Number.isFinite(s.tempThreshold)) {\n        action =\n            s.temperature > s.tempThreshold + 0.5\n                ? \"Recommended action: increase cooling / lower AC setpoint\"\n                : s.temperature < 18\n                    ? \"Recommended action: check heating needs / adjust setpoint\"\n                    : \"Recommended action: maintain settings (comfort OK)\";\n    }\n\n    const line1 = `- Classroom: ${occ} · Mode ${mode} · Lights ${lights} · Fans ${fans}`;\n    const line2 = `- Temperature: ${temp} vs ${threshold} · ${comfort.replace(/^Comfort:\\s*/, \"\")}`;\n    const line3 = s.acPower === null && s.acMode === null\n        ? \"- AC System: AC state unavailable\"\n        : `- AC System: Power ${acPower} · Mode ${acMode} · Setpoint ${acSetpoint} · Cooling ${cooling}`;\n    const line4 = `- ${scheduleLine}${afterLine}`;\n    const line5 = `- ${mlLine.replace(/^ML Insight:\\s*/, \"\")}`;\n    const line6 = `- ${action.replace(/^Recommended action:\\s*/, \"\")}`;\n\n    return [line1, line2, line3, line4, line5, line6].join(\"\\n\");\n}\n\nconst fallbackText = buildFallback(state);\nmsg._fallbackSummary = fallbackText;\n\nconst systemPrompt = `You are an AI assistant for a smart classroom automation system.\n\nGiven the latest classroom telemetry, schedule policy state, expanded device counters (lights/fans),\nAC state, and ML insight, produce a short pointer-style summary for the dashboard.\n\nOUTPUT FORMAT (strict):\n- Return EXACTLY 6 lines.\n- Each line MUST start with \"- \" (dash + space).\n- No extra text before/after the 6 lines.\n- Each line should be concise (aim <= 90 characters).\n\nUse these labels in order:\n1) Classroom: Occupancy + control mode + lights/fans state\n2) Temperature: current temp (or NA) vs threshold + comfort hint\n3) AC System: power + mode + setpoint + cooling-active\n4) Schedule: inside/outside schedule + after-hours motion if relevant\n5) ML Insight: predicted temp + confidence + anomaly + ML status\n6) Recommended action: one concrete next step\n\nRules / hints:\n- Use lightOnCount/lightTotal when available; otherwise use binary light.\n- Use fanOnCount/fanTotal when available; otherwise use binary fan.\n- Use acPower/acMode/acSetpoint/acCoolingActive when present; otherwise say \"AC state unavailable\".\n- If forceOff=true: explicitly say devices are forced OFF outside scheduled hours.\n- If afterHoursAlert=true AND motion=true: mention possible after-hours intrusion/investigation.\n- If temperature is null/NA: say \"Temperature reading not available yet\".\n- If pipelineAgeMs is present and is large (> 8000ms), mention that telemetry is stale.\n`;\n\nconst userBlock = JSON.stringify(state, null, 2);\n\nmsg._usedModel = model;\nmsg._sourceLabel = \"groq\";\n\nif (!apiKey) {\n    msg.skipGroq = true;\n    msg._prebuiltResponse = {\n        ok: true,\n        summary: fallbackText,\n        generatedAt: isoNow(),\n        model: \"fallback\",\n        source: \"local\"\n    };\n    return msg;\n}\n\nmsg.skipGroq = false;\nmsg._groqChatPayload = {\n    model: model,\n    messages: [\n        { role: \"system\", content: systemPrompt },\n        { role: \"user\", content: \"Latest classroom state (JSON):\\n\" + userBlock }\n    ],\n    temperature: 0.35,\n    max_tokens: 450\n};\n\nreturn msg;",
         "outputs": 1,
         "timeout": 0,
         "noerr": 0,
@@ -2127,7 +2148,7 @@
         "type": "function",
         "z": "51ea9c70bb53699f",
         "name": "API Toggle Schedule",
-        "func": "function trySetFlowTimeZone(tzRaw) {\n    if (typeof tzRaw !== \"string\" || tzRaw.length < 2) return;\n    try {\n        new Intl.DateTimeFormat(\"en-GB\", { timeZone: tzRaw }).format(new Date());\n        flow.set(\"scheduleTimeZone\", tzRaw);\n    } catch (e) {}\n}\n\nfunction scheduleMsFromMidnight(now, timeZone) {\n    if (!timeZone) {\n        return ((now.getHours() * 60 + now.getMinutes()) * 60 + now.getSeconds()) * 1000 +\n            now.getMilliseconds();\n    }\n    const parts = new Intl.DateTimeFormat(\"en-GB\", {\n        timeZone: timeZone,\n        hour: \"2-digit\",\n        minute: \"2-digit\",\n        second: \"2-digit\",\n        hour12: false,\n    }).formatToParts(now);\n    const num = (type) => {\n        const p = parts.find((x) => x.type === type);\n        return p ? Number(p.value) : 0;\n    };\n    return ((num(\"hour\") * 60 + num(\"minute\")) * 60 + num(\"second\")) * 1000;\n}\n\nfunction scheduleLocalTimeString(now, timeZone) {\n    if (!timeZone) {\n        return now.toLocaleTimeString(\"en-GB\", { hour12: false, hour: \"2-digit\", minute: \"2-digit\", second: \"2-digit\" });\n    }\n    return new Intl.DateTimeFormat(\"en-GB\", {\n        timeZone: timeZone,\n        hour12: false,\n        hour: \"2-digit\",\n        minute: \"2-digit\",\n        second: \"2-digit\",\n    }).format(now);\n}\n\nlet body = msg.req && msg.req.body;\nif (typeof body === \"string\") {\n    try { body = JSON.parse(body); } catch (e) { body = null; }\n}\nif (body && typeof body.classroomTz === \"string\") {\n    trySetFlowTimeZone(body.classroomTz);\n}\n\nlet enabled = flow.get(\"scheduleEnabled\");\nif (enabled === undefined) {\n    enabled = true;\n}\n\nenabled = !enabled;\nflow.set(\"scheduleEnabled\", enabled);\n\nlet now = new Date();\nconst schedTz = flow.get(\"scheduleTimeZone\") || process.env.CLASSROOM_TIMEZONE || \"\";\nlet msFromMidnight = scheduleMsFromMidnight(now, schedTz);\nconst START_MS = 8 * 60 * 60 * 1000;\nconst END_MS = 18 * 60 * 60 * 1000;\nlet inScheduledHours = msFromMidnight >= START_MS && msFromMidnight < END_MS;\n\nlet command;\nif (!enabled) {\n    command = {\n        forceOff: false,\n        afterHoursAlert: false\n    };\n} else {\n    command = {\n        forceOff: !inScheduledHours,\n        afterHoursAlert: !inScheduledHours\n    };\n}\n\nlet mqttMsg = {\n    payload: JSON.stringify(command)\n};\n\nlet responseMsg = {\n    statusCode: 200,\n    payload: {\n        ok: true,\n        scheduleEnabled: enabled,\n        command: command,\n        inScheduleWindow: inScheduledHours,\n        serverTimeIso: now.toISOString(),\n        serverLocalTime: scheduleLocalTimeString(now, schedTz),\n        scheduleWindowLabel: \"08:00–18:00\"\n    }\n};\n\nreturn [mqttMsg, responseMsg];",
+        "func": "function trySetFlowTimeZone(tzRaw) {\n    if (typeof tzRaw !== \"string\" || tzRaw.length < 2) return;\n    try {\n        new Intl.DateTimeFormat(\"en-GB\", { timeZone: tzRaw }).format(new Date());\n        flow.set(\"scheduleTimeZone\", tzRaw);\n    } catch (e) {}\n}\n\nfunction scheduleMsFromMidnight(now, timeZone) {\n    if (!timeZone) {\n        return ((now.getHours() * 60 + now.getMinutes()) * 60 + now.getSeconds()) * 1000 +\n            now.getMilliseconds();\n    }\n    const parts = new Intl.DateTimeFormat(\"en-GB\", {\n        timeZone: timeZone,\n        hour: \"2-digit\",\n        minute: \"2-digit\",\n        second: \"2-digit\",\n        hour12: false,\n    }).formatToParts(now);\n    const num = (type) => {\n        const p = parts.find((x) => x.type === type);\n        return p ? Number(p.value) : 0;\n    };\n    return ((num(\"hour\") * 60 + num(\"minute\")) * 60 + num(\"second\")) * 1000;\n}\n\nfunction scheduleLocalTimeString(now, timeZone) {\n    if (!timeZone) {\n        return now.toLocaleTimeString(\"en-GB\", { hour12: false, hour: \"2-digit\", minute: \"2-digit\", second: \"2-digit\" });\n    }\n    return new Intl.DateTimeFormat(\"en-GB\", {\n        timeZone: timeZone,\n        hour12: false,\n        hour: \"2-digit\",\n        minute: \"2-digit\",\n        second: \"2-digit\",\n    }).format(now);\n}\n\nlet body = msg.req && msg.req.body;\nif (typeof body === \"string\") {\n    try { body = JSON.parse(body); } catch (e) { body = null; }\n}\nif (body && typeof body.classroomTz === \"string\") {\n    trySetFlowTimeZone(body.classroomTz);\n}\n\nlet enabled = flow.get(\"scheduleEnabled\");\nif (enabled === undefined) {\n    enabled = true;\n}\n\nenabled = !enabled;\nflow.set(\"scheduleEnabled\", enabled);\n\nlet now = new Date();\nconst schedTz = flow.get(\"scheduleTimeZone\") || env.get('CLASSROOM_TIMEZONE') || \"\";\nlet msFromMidnight = scheduleMsFromMidnight(now, schedTz);\nconst START_MS = 8 * 60 * 60 * 1000;\nconst END_MS = 18 * 60 * 60 * 1000;\nlet inScheduledHours = msFromMidnight >= START_MS && msFromMidnight < END_MS;\n\nlet command;\nif (!enabled) {\n    command = {\n        forceOff: false,\n        afterHoursAlert: false,\n        acPower: true\n    };\n} else {\n    command = {\n        forceOff: !inScheduledHours,\n        afterHoursAlert: !inScheduledHours,\n        acPower: inScheduledHours\n    };\n}\n\nlet mqttMsg = {\n    payload: JSON.stringify(command)\n};\n\nlet responseMsg = {\n    statusCode: 200,\n    payload: {\n        ok: true,\n        scheduleEnabled: enabled,\n        command: command,\n        inScheduleWindow: inScheduledHours,\n        serverTimeIso: now.toISOString(),\n        serverLocalTime: scheduleLocalTimeString(now, schedTz),\n        scheduleWindowLabel: \"08:00–18:00\"\n    }\n};\n\nreturn [mqttMsg, responseMsg];",
         "outputs": 2,
         "timeout": 0,
         "noerr": 0,
@@ -2194,7 +2215,7 @@
         "type": "function",
         "z": "51ea9c70bb53699f",
         "name": "API Get Schedule State",
-        "func": "function trySetFlowTimeZone(tzRaw) {\n    if (typeof tzRaw !== \"string\" || tzRaw.length < 2) return;\n    try {\n        new Intl.DateTimeFormat(\"en-GB\", { timeZone: tzRaw }).format(new Date());\n        flow.set(\"scheduleTimeZone\", tzRaw);\n    } catch (e) {}\n}\n\nfunction scheduleMsFromMidnight(now, timeZone) {\n    if (!timeZone) {\n        return ((now.getHours() * 60 + now.getMinutes()) * 60 + now.getSeconds()) * 1000 +\n            now.getMilliseconds();\n    }\n    const parts = new Intl.DateTimeFormat(\"en-GB\", {\n        timeZone: timeZone,\n        hour: \"2-digit\",\n        minute: \"2-digit\",\n        second: \"2-digit\",\n        hour12: false,\n    }).formatToParts(now);\n    const num = (type) => {\n        const p = parts.find((x) => x.type === type);\n        return p ? Number(p.value) : 0;\n    };\n    return ((num(\"hour\") * 60 + num(\"minute\")) * 60 + num(\"second\")) * 1000;\n}\n\nfunction scheduleLocalTimeString(now, timeZone) {\n    if (!timeZone) {\n        return now.toLocaleTimeString(\"en-GB\", { hour12: false, hour: \"2-digit\", minute: \"2-digit\", second: \"2-digit\" });\n    }\n    return new Intl.DateTimeFormat(\"en-GB\", {\n        timeZone: timeZone,\n        hour12: false,\n        hour: \"2-digit\",\n        minute: \"2-digit\",\n        second: \"2-digit\",\n    }).format(now);\n}\n\nlet q = msg.req && msg.req.query && msg.req.query.classroomTz;\nif (typeof q === \"string\") {\n    trySetFlowTimeZone(q);\n}\n\nlet enabled = flow.get(\"scheduleEnabled\");\nif (enabled === undefined) {\n    enabled = true;\n    flow.set(\"scheduleEnabled\", true);\n}\n\nlet now = new Date();\nconst schedTz = flow.get(\"scheduleTimeZone\") || process.env.CLASSROOM_TIMEZONE || \"\";\nlet msFromMidnight = scheduleMsFromMidnight(now, schedTz);\nconst START_MS = 8 * 60 * 60 * 1000;\nconst END_MS = 18 * 60 * 60 * 1000;\nlet inScheduledHours = msFromMidnight >= START_MS && msFromMidnight < END_MS;\n\nmsg.statusCode = 200;\nmsg.payload = {\n    ok: true,\n    scheduleEnabled: enabled,\n    inScheduleWindow: inScheduledHours,\n    serverTimeIso: now.toISOString(),\n    serverLocalTime: scheduleLocalTimeString(now, schedTz),\n    scheduleWindowLabel: \"08:00–18:00\"\n};\nreturn msg;",
+        "func": "function trySetFlowTimeZone(tzRaw) {\n    if (typeof tzRaw !== \"string\" || tzRaw.length < 2) return;\n    try {\n        new Intl.DateTimeFormat(\"en-GB\", { timeZone: tzRaw }).format(new Date());\n        flow.set(\"scheduleTimeZone\", tzRaw);\n    } catch (e) {}\n}\n\nfunction scheduleMsFromMidnight(now, timeZone) {\n    if (!timeZone) {\n        return ((now.getHours() * 60 + now.getMinutes()) * 60 + now.getSeconds()) * 1000 +\n            now.getMilliseconds();\n    }\n    const parts = new Intl.DateTimeFormat(\"en-GB\", {\n        timeZone: timeZone,\n        hour: \"2-digit\",\n        minute: \"2-digit\",\n        second: \"2-digit\",\n        hour12: false,\n    }).formatToParts(now);\n    const num = (type) => {\n        const p = parts.find((x) => x.type === type);\n        return p ? Number(p.value) : 0;\n    };\n    return ((num(\"hour\") * 60 + num(\"minute\")) * 60 + num(\"second\")) * 1000;\n}\n\nfunction scheduleLocalTimeString(now, timeZone) {\n    if (!timeZone) {\n        return now.toLocaleTimeString(\"en-GB\", { hour12: false, hour: \"2-digit\", minute: \"2-digit\", second: \"2-digit\" });\n    }\n    return new Intl.DateTimeFormat(\"en-GB\", {\n        timeZone: timeZone,\n        hour12: false,\n        hour: \"2-digit\",\n        minute: \"2-digit\",\n        second: \"2-digit\",\n    }).format(now);\n}\n\nlet q = msg.req && msg.req.query && msg.req.query.classroomTz;\nif (typeof q === \"string\") {\n    trySetFlowTimeZone(q);\n}\n\nlet enabled = flow.get(\"scheduleEnabled\");\nif (enabled === undefined) {\n    enabled = true;\n    flow.set(\"scheduleEnabled\", true);\n}\n\nlet now = new Date();\nconst schedTz = flow.get(\"scheduleTimeZone\") || env.get('CLASSROOM_TIMEZONE') || \"\";\nlet msFromMidnight = scheduleMsFromMidnight(now, schedTz);\nconst START_MS = 8 * 60 * 60 * 1000;\nconst END_MS = 18 * 60 * 60 * 1000;\nlet inScheduledHours = msFromMidnight >= START_MS && msFromMidnight < END_MS;\n\nmsg.statusCode = 200;\nmsg.payload = {\n    ok: true,\n    scheduleEnabled: enabled,\n    inScheduleWindow: inScheduledHours,\n    serverTimeIso: now.toISOString(),\n    serverLocalTime: scheduleLocalTimeString(now, schedTz),\n    scheduleWindowLabel: \"08:00–18:00\"\n};\nreturn msg;",
         "outputs": 1,
         "timeout": 0,
         "noerr": 0,
@@ -2372,6 +2393,160 @@
                 "b63f47ab648da08c"
             ]
         ]
+    },
+    {
+        "id": "bbccddeeff001122",
+        "type": "http in",
+        "z": "51ea9c70bb53699f",
+        "name": "GET /api/attendance",
+        "url": "/api/attendance",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 170,
+        "y": 2010,
+        "wires": [
+            [
+                "ccddee0011223344"
+            ]
+        ]
+    },
+    {
+        "id": "ccddee0011223344",
+        "type": "http request",
+        "z": "51ea9c70bb53699f",
+        "name": "GET attendance summary (storage bridge)",
+        "method": "GET",
+        "ret": "txt",
+        "paytoqs": "ignore",
+        "url": "http://host.docker.internal:4050/api/storage/attendance-summary",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 420,
+        "y": 2010,
+        "wires": [
+            [
+                "ddeeff0011223345"
+            ]
+        ]
+    },
+    {
+        "id": "ddeeff0011223345",
+        "type": "json",
+        "z": "51ea9c70bb53699f",
+        "name": "",
+        "property": "payload",
+        "action": "",
+        "pretty": false,
+        "x": 650,
+        "y": 2010,
+        "wires": [
+            [
+                "eeff001122334455"
+            ]
+        ]
+    },
+    {
+        "id": "eeff001122334455",
+        "type": "http response",
+        "z": "51ea9c70bb53699f",
+        "name": "",
+        "statusCode": "",
+        "headers": {},
+        "x": 880,
+        "y": 2010,
+        "wires": []
+    },
+    {
+        "id": "ff00112233445566",
+        "type": "http in",
+        "z": "51ea9c70bb53699f",
+        "name": "POST /api/attendance/reset",
+        "url": "/api/attendance/reset",
+        "method": "post",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 170,
+        "y": 2050,
+        "wires": [
+            [
+                "0011223344556677"
+            ]
+        ]
+    },
+    {
+        "id": "0011223344556677",
+        "type": "function",
+        "z": "51ea9c70bb53699f",
+        "name": "API Attendance Reset Prepare",
+        "func": "msg.headers = { \"Content-Type\": \"application/json\" };\nmsg.payload = {};\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 420,
+        "y": 2050,
+        "wires": [
+            [
+                "1122334455667788"
+            ]
+        ]
+    },
+    {
+        "id": "1122334455667788",
+        "type": "http request",
+        "z": "51ea9c70bb53699f",
+        "name": "POST attendance reset (storage bridge)",
+        "method": "POST",
+        "ret": "txt",
+        "paytoqs": "ignore",
+        "url": "http://host.docker.internal:4050/api/storage/attendance/reset",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 650,
+        "y": 2050,
+        "wires": [
+            [
+                "2233445566778899"
+            ]
+        ]
+    },
+    {
+        "id": "2233445566778899",
+        "type": "json",
+        "z": "51ea9c70bb53699f",
+        "name": "",
+        "property": "payload",
+        "action": "",
+        "pretty": false,
+        "x": 880,
+        "y": 2050,
+        "wires": [
+            [
+                "3344556677889900"
+            ]
+        ]
+    },
+    {
+        "id": "3344556677889900",
+        "type": "http response",
+        "z": "51ea9c70bb53699f",
+        "name": "",
+        "statusCode": "",
+        "headers": {},
+        "x": 1110,
+        "y": 2050,
+        "wires": []
     },
     {
         "id": "b355a76964a3c013",

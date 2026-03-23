@@ -6,6 +6,7 @@ import { Card } from "../ui/Card";
 
 interface AiReportCardProps {
   fallbackText?: string;
+  className?: string;
 }
 
 function formatGeneratedAt(iso: string | undefined) {
@@ -15,7 +16,10 @@ function formatGeneratedAt(iso: string | undefined) {
   return d.toLocaleString(undefined, { dateStyle: "short", timeStyle: "medium" });
 }
 
-export function AiReportCard({ fallbackText = "AI report is not generated yet." }: AiReportCardProps) {
+export function AiReportCard({
+  fallbackText = "AI report is not generated yet.",
+  className,
+}: AiReportCardProps) {
   const [report, setReport] = useState(fallbackText);
   const [meta, setMeta] = useState<Pick<AiReportPayload, "generatedAt" | "model" | "source"> | null>(null);
   const [busy, setBusy] = useState(false);
@@ -36,7 +40,12 @@ export function AiReportCard({ fallbackText = "AI report is not generated yet." 
   }
 
   return (
-    <Card title="AI Report" subtitle="Natural-language classroom summary" icon={<Sparkles size={18} />}>
+    <Card
+      title="AI Report"
+      subtitle="Natural-language classroom summary"
+      icon={<Sparkles size={18} />}
+      className={className}
+    >
       <div className="space-y-3">
         <div className="min-h-24 whitespace-pre-line rounded-xl bg-slate-100 p-3 text-sm leading-relaxed text-slate-700 dark:bg-slate-800 dark:text-slate-200">
           {report}
