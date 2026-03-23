@@ -60,7 +60,7 @@ export const dashboardApi = {
   async getTelemetry(): Promise<TelemetryPayload> {
     if (FORCE_MOCK) return getMockTelemetry(true);
     try {
-      // TODO: Node-RED should expose GET /api/telemetry with Wokwi-aligned fields.
+      // Live data from Node-RED API.
       return await requestJson<TelemetryPayload>("/api/telemetry");
     } catch {
       return getMockTelemetry(false);
@@ -69,7 +69,7 @@ export const dashboardApi = {
   async getSummary(): Promise<DashboardSummaryPayload> {
     if (FORCE_MOCK) return getMockSummary();
     try {
-      // TODO: Node-RED should expose GET /api/dashboard-summary.
+      // Live data from Node-RED API.
       return await requestJson<DashboardSummaryPayload>("/api/dashboard-summary");
     } catch {
       return getMockSummary();
@@ -78,7 +78,7 @@ export const dashboardApi = {
   async getMl(): Promise<MlPayload> {
     if (FORCE_MOCK) return getMockMl();
     try {
-      // TODO: Node-RED should expose GET /api/ml.
+      // Live data from Node-RED API.
       return await requestJson<MlPayload>("/api/ml");
     } catch {
       return getMockMl();
@@ -243,7 +243,7 @@ export const dashboardApi = {
       };
     }
     try {
-      // TODO: Node-RED should expose GET /api/schedule-state.
+      // Live data from Node-RED API.
       return await requestJson<ScheduleStateResponse>(scheduleStatePath());
     } catch {
       const now = new Date();

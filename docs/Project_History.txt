@@ -474,3 +474,205 @@ placeholder with a real report contract and any chosen model/service.
 ================================================================================
 END OF PROJECT HISTORY
 ================================================================================
+
+
+================================================================================
+FINAL WORKING VERSION ADDENDUM (MARCH 2026)
+This addendum supersedes older "Phase C placeholder" references above.
+It is appended intentionally to preserve prior historical notes.
+================================================================================
+
+12. FINAL ARCHITECTURE (AS-IMPLEMENTED)
+--------------------------------------------------------------------------------
+
+End-to-end data/control loop
+  Wokwi (ESP32 + DHT22 + PIR + 2x74HC595 + AC LEDs + MFRC522 RFID + buzzer)
+    -> MQTT topic: smartclass/demo01/telemetry
+    -> Node-RED ingest/enrich/rules/ML/AI/API flows
+    -> storage bridge POST /ingest + downtime tick endpoint
+    -> React dashboard (polling Node-RED + storage APIs)
+    -> user commands (dashboard buttons/sliders/inputs)
+    -> Node-RED POST /api/command
+    -> MQTT topic: smartclass/demo01/command
+    -> Wokwi applies command and publishes refreshed telemetry
+
+High-level components and responsibility split
+  • Wokwi firmware (`backend-reference/wokwi_project_phase1_lights_fans_ac/sketch.ino`)
+    owns hardware state, device actuation, backward-compatible command parsing,
+    and one-shot RFID attendance event publish.
+  • Node-RED (`all_flows_edit.json`) owns orchestration: telemetry normalization,
+    summary generation, schedule and automation logic, ML prediction, AI report,
+    command normalization, API surface, and bridge forwarding.
+  • Storage bridge (`storage-bridge.mjs`) owns durable persistence and query APIs
+    for telemetry history, attendance state/session lifecycle, occupancy sessions,
+    and downtime accumulation.
+  • Frontend (`frontend/`) owns rendering, interaction, polling, UX state
+    management, trend window filters, and clear user feedback.
+
+13. WOKWI HARDWARE + FIRMWARE FINAL STATE
+--------------------------------------------------------------------------------
+
+Wokwi project paths
+  • Original preserved (untouched): `backend-reference/wokwi_project/`
+  • Working copy used for implementation:
+    `backend-reference/wokwi_project_phase1_lights_fans_ac/`
+
+Hardware implemented in working copy
+  • ESP32 DevKit
+  • DHT22 temperature sensor
+  • PIR motion sensor
+  • Buzzer
+  • Two chained 74HC595 shift registers:
+      - bits 0..9  -> 10 white light indicators (2x5 grid)
+      - bits 10..15 -> 6 cyan fan indicators (2x3 grid)
+  • AC indicators:
+      - AC power LED
+      - AC cooling-active LED
+  • MFRC522 RFID reader for attendance scanning
+
+Firmware behavior highlights
+  • Preserves old telemetry/command semantics (`light`, `fan`, `mode`, schedule flags).
+  • Adds count/mask model for lights/fans and AC state fields.
+  • Supports `light`/`fan` as boolean and numeric level/count.
+  • Supports AC command fields (`acPower`, `acMode`, `acSetpoint`).
+  • Emits one-shot `attendanceEvent` with scanned `tagId`.
+  • Local RFID feedback via buzzer for valid/duplicate/invalid card classes.
+  • Uses same command/telemetry MQTT topic structure as legacy flow contract.
+
+Attendance UID mapping (final)
+  • Blue Card   -> 01:02:03:04
+  • Green Card  -> 11:22:33:44
+  • Yellow Card -> 55:66:77:88
+  • Red Card    -> AA:BB:CC:DD
+  • NFC Tag     -> 04:11:22:33    (Wokwi reports 4-byte UID here)
+  • Key Fob     -> C0:FF:EE:99
+
+14. NODE-RED FINAL FLOW CAPABILITIES
+--------------------------------------------------------------------------------
+
+Core APIs exposed (Node-RED)
+  • GET  /api/telemetry
+  • GET  /api/dashboard-summary
+  • GET  /api/ml
+  • POST /api/command
+  • POST /api/ai-report
+  • POST /api/schedule-toggle
+  • GET  /api/schedule-state
+  • GET  /api/attendance
+  • GET  /api/attendance/live
+  • POST /api/attendance/reset
+  • POST /api/attendance/session/start
+  • POST /api/attendance/session/end
+  • GET  /api/attendance/export.csv
+
+Flow behavior now implemented
+  • Telemetry enrichment includes:
+      - 10 lights and 6 fans counts/masks
+      - AC power/mode/setpoint/cooling/manual-override
+      - pipeline freshness timestamps (`serverTimeMs`, `lastWokwiMqttMs`)
+  • Command path supports grouped light/fan control, AC controls, and old fields.
+  • Schedule logic supports enable/disable and timezone-aware evaluation.
+  • ML path remains live and integrated with summary/dashboard APIs.
+  • AI report path is operational and returns structured summary payloads.
+  • Attendance proxy endpoints route to storage bridge attendance APIs.
+
+15. STORAGE BRIDGE FINAL CAPABILITIES
+--------------------------------------------------------------------------------
+
+Core bridge endpoints
+  • POST /ingest
+  • GET  /api/storage/info
+  • GET  /api/storage/temperature-trend
+  • POST /api/storage/clear
+  • POST /api/storage/downtime/tick
+  • POST /api/storage/downtime/reset
+  • GET  /api/storage/occupancy-sessions
+  • PATCH /api/storage/occupancy-sessions/flag
+
+Attendance storage endpoints
+  • POST /api/storage/attendance/reset
+  • POST /api/storage/attendance/session/start
+  • POST /api/storage/attendance/session/end
+  • GET  /api/storage/attendance/live
+  • GET  /api/storage/attendance/roster
+  • GET  /api/storage/attendance/export.csv
+  • GET  /api/storage/attendance-summary
+  • GET  /api/storage/attendance-events
+
+Persistence files (runtime, gitignored)
+  • `data/telemetry.jsonl`
+  • `data/bridge-state.json`
+  • `data/downtime.json`
+  • `data/occupancy-sessions.json`
+  • `data/attendance-events.jsonl`
+  • `data/attendance-scan-log.jsonl`
+  • `data/attendance-session.json`
+  • `data/attendance-bridge-state.json`
+
+16. FRONTEND FINAL STATE
+--------------------------------------------------------------------------------
+
+Pages and navigation
+  • Home dashboard
+  • Attendance Tracker page
+  • Header nav buttons for Home and Attendance routes
+
+Home page cards/features
+  • Live Classroom Status
+  • Temperature gauge + trend graph
+  • Controls (manual/auto + grouped controls)
+  • Classroom Devices (10-light, 6-fan grid)
+  • AC System panel (A/M mode, power, setpoint, status badges)
+  • Analytics
+  • ML Insights
+  • AI Report (pointer-style summary)
+  • Storage/Pipeline panel
+
+Temperature trend behavior (final)
+  • Time filters: 1m, 5m, 10m, 1h, 1d, 1w, 1mo
+  • Pulls historical values from storage by selected window
+  • Merges current live stream points
+  • Inserts null gaps for disconnect periods so line breaks naturally
+  • Clear storage resets plotted history and restarts from fresh incoming data
+
+Attendance Tracker behavior (final)
+  • Session start/end/reset controls
+  • Live present/late/absent KPIs with attendance %
+  • Duplicate and invalid counters
+  • Recent scan feed with timestamps and status
+  • Search + filter student table
+  • CSV export
+
+17. SECURITY + DATA EXPOSURE POSITION
+--------------------------------------------------------------------------------
+
+Key handling
+  • Groq key is read from Node-RED runtime environment (env vars).
+  • Key is never sent to frontend.
+  • Key is not included in MQTT command/telemetry payloads.
+  • AI call is server-side HTTPS request from Node-RED to api.groq.com.
+
+Public broker data boundary
+  • MQTT payloads contain classroom telemetry, control fields, and one-shot
+    attendance scan tag ID events.
+  • MQTT payloads do not include API keys or secret tokens.
+
+18. FINAL WORKING STATUS SUMMARY
+--------------------------------------------------------------------------------
+
+What is fully integrated now
+  • Lights grid (10) and fans grid (6) end-to-end.
+  • AC control + status end-to-end (auto/manual, power, setpoint, cooling state).
+  • Attendance end-to-end using practical RFID hardware events from Wokwi.
+  • Node-RED APIs + storage bridge persistence + frontend rendering paths aligned.
+  • Schedule, ML, analytics, downtime, occupancy, and storage pipelines preserved.
+  • Original Wokwi folder preserved; implementation done on copied project folder.
+
+Operational source-of-truth files
+  • Flows: `all_flows_edit.json`
+  • Wokwi working project:
+    `backend-reference/wokwi_project_phase1_lights_fans_ac/`
+  • Persistence server: `storage-bridge.mjs`
+  • Dashboard app: `frontend/`
+  • Runbook: `RUN-STEPS.txt`
+

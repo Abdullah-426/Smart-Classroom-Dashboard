@@ -10,6 +10,17 @@ WHAT RUNS (quick map)
   • Vite (React UI)      — Usually port 5173; proxies /api to Node-RED and /api/storage to the bridge.
   • Wokwi                — Publishes classroom telemetry to MQTT.
 
+CURRENT DEFAULTS IN FINAL WORKING VERSION
+  • Wokwi firmware path in use:
+      backend-reference/wokwi_project_phase1_lights_fans_ac/
+  • Original Wokwi baseline kept untouched:
+      backend-reference/wokwi_project/
+  • Default broker currently used by phase1_lights_fans_ac sketch:
+      broker.hivemq.com:1883
+  • Core MQTT topics:
+      smartclass/demo01/telemetry
+      smartclass/demo01/command
+
 --------------------------------------------------------------------------------
 ONE-TIME SETUP (after git clone or on a new machine)
 --------------------------------------------------------------------------------
@@ -68,6 +79,54 @@ QUICK HEALTH CHECK
     the footer should show source groq; otherwise you still get a local fallback summary.
   • Optional deeper checklist: docs/VERIFICATION.md
 
+  • Command round-trip quick test:
+      - Click Fan ON/OFF and Light ON/OFF in Home Controls card.
+      - Verify Wokwi indicators change and /api/telemetry reflects counts.
+  • AC quick test:
+      - In AC panel toggle A/M and power, then apply setpoint.
+      - Verify acPower/acMode/acSetpoint/acCoolingActive in telemetry.
+
+--------------------------------------------------------------------------------
+ATTENDANCE PHASE 4 (RFID) QUICK START
+--------------------------------------------------------------------------------
+
+  1. Ensure the latest all_flows_edit.json is imported in Node-RED and deployed.
+
+  2. Open dashboard Attendance page and click "Start Session".
+     This calls:
+       POST /api/attendance/session/start
+
+  3. In Wokwi, use MFRC522 card presets and verify they map to roster:
+       Blue Card   -> 01:02:03:04      -> SC-001 Aanya Rao
+       Green Card  -> 11:22:33:44      -> SC-002 Mohammed Ali
+       Yellow Card -> 55:66:77:88      -> SC-003 Riya Patel
+       Red Card    -> AA:BB:CC:DD      -> SC-004 Daniel James
+       NFC Tag     -> 04:11:22:33      -> SC-005 Sara Khan
+       Key Fob     -> C0:FF:EE:99      -> SC-006 Vikram Nair
+
+  4. Verify Attendance page updates:
+       • Present/Late/Absent counters
+       • Invalid and Duplicate counters
+       • Recent scans feed with status (present/late/duplicate/invalid)
+       • Search/filter student table
+       • Export CSV button
+
+  5. Session controls:
+       • End Session -> POST /api/attendance/session/end
+       • Reset       -> POST /api/attendance/reset
+
+  6. Useful endpoints for debug:
+       • GET  /api/attendance/live
+       • GET  /api/attendance
+       • GET  /api/attendance/export.csv
+       • GET  /api/storage/attendance/live
+
+  7. Attendance behavior checks:
+       • Re-scan same card quickly -> duplicate
+       • Scan unknown UID card -> invalid
+       • Scan after late threshold -> late
+       • End session -> session.active=false
+
 --------------------------------------------------------------------------------
 ALTERNATIVE: STORAGE BRIDGE ONLY (no Vite in the same command)
 --------------------------------------------------------------------------------
@@ -88,5 +147,13 @@ IF STORAGE OR DOWNTIME LOOKS STUCK AFTER CHANGING FLOWS
   • Confirm the two POST URLs match your setup (host.docker.internal vs 127.0.0.1).
   • Restart npm run dev:all (or the storage script) so port 4050 is listening.
   • Re-Deploy flows in Node-RED.
+
+FINAL DEPLOYMENT REMINDERS
+  • Never edit original `backend-reference/wokwi_project/`; always work in
+    `backend-reference/wokwi_project_phase1_lights_fans_ac/`.
+  • After changing `all_flows_edit.json`, re-import and Deploy in Node-RED.
+  • After changing `storage-bridge.mjs`, restart `npm run dev:all`.
+  • If telemetry appears stale, verify Wokwi is running and publishing to the
+    same broker/topic pair configured in Node-RED MQTT nodes.
 
 ================================================================================
