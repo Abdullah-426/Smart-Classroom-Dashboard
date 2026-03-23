@@ -1,0 +1,621 @@
+SMART CLASSROOM DASHBOARD - FINAL WORKING VERSION
+Complete Technical Documentation (Wokwi + Node-RED + Frontend)
+Date: 2026-03-24
+
+===============================================================================
+1) SYSTEM OVERVIEW (END-TO-END)
+===============================================================================
+
+Final runtime data path:
+
+Wokwi ESP32 firmware
+  -> publishes telemetry (MQTT)
+  -> receives control commands (MQTT)
+  -> embeds attendance RFID events in telemetry
+
+MQTT broker (broker.hivemq.com:1883)
+  Topics:
+  - smartclass/demo01/telemetry
+  - smartclass/demo01/command
+  - smartclass/demo01/status
+
+Node-RED flow (all_flows_edit.json)
+  - subscribes telemetry topic
+  - enriches and stores latest system state
+  - drives classic Node-RED dashboard widgets
+  - exposes HTTP APIs for React frontend
+  - forwards telemetry + attendance events to storage bridge
+  - forwards attendance/session/export APIs to storage bridge
+
+Storage bridge (storage-bridge.mjs, default :4050)
+  - persists telemetry JSONL
+  - persists occupancy sessions
+  - tracks pipeline downtime
+  - persists attendance session/scans/events
+  - serves storage APIs for trend/history/attendance
+
+React frontend (frontend/, Vite)
+  - polls Node-RED + storage APIs every 1000ms
+  - renders dashboard and attendance views
+  - sends control commands and session actions
+
+
+===============================================================================
+2) WOKWI STRUCTURE, COMPONENTS, CONNECTIONS, FEATURES, LOGIC
+===============================================================================
+
+Project path used in final version:
+- backend-reference/wokwi_project_phase1_lights_fans_ac/
+  - sketch.ino
+  - diagram.json
+
+-----------------------------------------------------------------------------
+2.1 Main board and communication
+-----------------------------------------------------------------------------
+
+Board:
+- ESP32 DevKit C v4
+
+Connectivity:
+- Wi-Fi SSID: Wokwi-GUEST
+- MQTT broker: broker.hivemq.com:1883
+- Publish topic: smartclass/demo01/telemetry
+- Command subscribe topic: smartclass/demo01/command
+- Status publish topic: smartclass/demo01/status
+
+Libraries used in firmware:
+- WiFi
+- PubSubClient
+- DHT
+- ArduinoJson
+- SPI
+- MFRC522
+
+
+-----------------------------------------------------------------------------
+2.2 Sensors and actuators (with pin mapping)
+-----------------------------------------------------------------------------
+
+Sensors:
+- PIR motion sensor on GPIO 14
+- DHT22 temperature sensor on GPIO 15
+- MFRC522 RFID reader on custom SPI mapping:
+  - SS (SDA): GPIO 12
+  - RST: GPIO 21
+  - SCK: GPIO 26
+  - MISO: GPIO 13
+  - MOSI: GPIO 27
+
+Actuators / indicators:
+- Buzzer on GPIO 25
+- AC power indicator LED on GPIO 19
+- AC cooling indicator LED on GPIO 23
+
+Expanded light/fan grid through shift registers:
+- 2 x 74HC595 chained
+- ESP32 to shift registers:
+  - DS: GPIO 16
+  - SHCP (clock): GPIO 17
+  - STCP (latch): GPIO 18
+
+Output bit mapping (16 bits total):
+- Bits 0..9   -> 10 white LEDs (tube lights)
+- Bits 10..15 -> 6 cyan LEDs (fan indicators)
+
+
+-----------------------------------------------------------------------------
+2.3 Physical Wokwi wiring architecture (diagram.json)
+-----------------------------------------------------------------------------
+
+The final diagram models a classroom panel with:
+- 10 white light LEDs (each with resistor)
+- 6 cyan fan LEDs (each with resistor)
+- 2 AC state LEDs (power + cooling, each with resistor)
+- PIR + DHT22 + MFRC522 + buzzer
+- Two 74HC595 chips chained by Q7S -> DS
+
+Important wiring decisions:
+- RFID SPI pins are intentionally moved away from shift register and AC pins.
+- Both shift registers share SHCP and STCP, while DS is chained via Q7S.
+- All light/fan LEDs are sinked through resistors to GND for visual state.
+
+
+-----------------------------------------------------------------------------
+2.4 Firmware control model (core behavior)
+-----------------------------------------------------------------------------
+
+Key operating flags:
+- autoMode (system auto/manual)
+- forceOff (schedule lockout)
+- afterHoursAlert (alert mode during off-hours)
+- tempThreshold (temperature threshold / AC setpoint)
+- acPower (user AC power enable)
+- acModeAuto (AC auto/manual)
+
+Occupancy model:
+- motion updates lastMotionMs
+- occupied = true when motion seen in last 20 seconds
+
+Light logic:
+- If forceOff -> all OFF
+- Else if system autoMode -> all 10 ON when occupied, else OFF
+- Else (manual mode) -> use manualLightCount (0..10)
+
+Fan logic:
+- If forceOff -> all OFF
+- Else if system autoMode -> all 6 ON when temperature >= 20C
+- Else (manual mode) -> use manualFanCount (0..6)
+
+AC logic (independent from fan):
+- If forceOff -> AC OFF
+- If acPower is false -> AC OFF
+- If AC mode auto:
+  - acPowerActive when temperature >= 25C
+  - acCoolingActive when acPowerActive and temperature >= tempThreshold
+- If AC mode manual:
+  - AC power and cooling both active (direct manual override behavior)
+
+After-hours audible behavior:
+- If afterHoursAlert and motion -> buzzer ON (tone)
+- Else buzzer OFF
+
+
+-----------------------------------------------------------------------------
+2.5 Command handling (MQTT -> firmware)
+-----------------------------------------------------------------------------
+
+Incoming JSON command keys supported:
+- mode: "auto" | "manual"
+- light: boolean OR numeric count (0..10)
+- fan: boolean OR numeric count (0..6)
+- forceOff: boolean
+- afterHoursAlert: boolean
+- tempThreshold: number
+- acPower: boolean
+- acMode: "auto" | "manual"
+- acSetpoint: number (mapped to tempThreshold comparator)
+
+Backward compatibility preserved:
+- boolean light/fan still supported
+- numeric light/fan enables expanded staged control
+
+
+-----------------------------------------------------------------------------
+2.6 Telemetry payload design and publish strategy
+-----------------------------------------------------------------------------
+
+Telemetry includes:
+- temperature, motion, occupied
+- light/fan legacy binary fields
+- mode, forceOff, afterHoursAlert, tempThreshold
+- lightOnCount, lightTotal, fanOnCount, fanTotal
+- lightsMask (10 bits), fansMask (6 bits)
+- acPower, acMode, acSetpoint, acCoolingActive, acManualOverride
+- attendanceEvent (one-shot object or null)
+
+Publish optimization:
+- Minimum publish interval: 500ms
+- Heartbeat max interval: 1000ms
+- Publish immediately on meaningful state change
+- Temperature epsilon threshold: 0.1C
+- Attendance events bypass waiting and publish quickly
+
+This keeps dashboard updates responsive while avoiding excessive MQTT/serial noise.
+
+
+-----------------------------------------------------------------------------
+2.7 RFID attendance in firmware
+-----------------------------------------------------------------------------
+
+Known UID map in firmware:
+- 01:02:03:04 (Blue card)
+- 11:22:33:44 (Green card)
+- 55:66:77:88 (Yellow card)
+- AA:BB:CC:DD (Red card)
+- 04:11:22:33 (NFC tag)
+- C0:FF:EE:99 (Key fob)
+
+RFID event behavior:
+- Each scan is normalized to uppercase UID format.
+- Local duplicate suppression window: 5 seconds.
+- If accepted, firmware queues attendanceEvent.tagId into next telemetry packet.
+- If rapid duplicate, event is suppressed locally and "duplicate" beep pattern is played.
+- Known vs unknown card only affects local beep/serial hint;
+  final valid/invalid/late classification is done in storage bridge attendance logic.
+
+
+===============================================================================
+3) FINAL NODE-RED FLOW (all_flows_edit.json) - DETAILED EXPLANATION
+===============================================================================
+
+-----------------------------------------------------------------------------
+3.1 High-level structure
+-----------------------------------------------------------------------------
+
+Flow tab:
+- "Flow 1"
+
+Dashboard UI groups:
+- Status
+- Controls
+- Analytics
+- ML
+- AI
+
+MQTT broker node:
+- Named "EMQX Public Broker"
+- Host broker.hivemq.com:1883
+
+Core flow role:
+1) ingest telemetry from MQTT
+2) enrich and normalize state
+3) update Node-RED dashboard widgets
+4) expose HTTP APIs for frontend
+5) bridge persistence/attendance calls to storage bridge
+
+
+-----------------------------------------------------------------------------
+3.2 Telemetry ingest and enrichment pipeline
+-----------------------------------------------------------------------------
+
+Main entry:
+- MQTT in: smartclass/demo01/telemetry (QoS 2)
+- JSON parse
+- Function: "Enrich Telemetry"
+
+"Enrich Telemetry" responsibilities:
+- computes mqttGapMs using lastWokwiMqttMs
+- normalizes expanded fields (light/fan counts and masks)
+- normalizes AC fields
+- extracts attendanceEvent when present
+- saves flow.latestTelemetry
+- saves flow.lastWokwiMqttMs
+- builds user-facing roomStatus/lightStatus/fanStatus/mode/alerts strings
+- updates flow.latestDashboardSummary with all key data
+
+This node is the core state synchronizer for all HTTP APIs and dashboard widgets.
+
+
+-----------------------------------------------------------------------------
+3.3 Storage bridge ingest + downtime tracking
+-----------------------------------------------------------------------------
+
+Storage ingest branch:
+- Function: "Prepare storage POST"
+- HTTP request: POST http://host.docker.internal:4050/ingest
+
+What gets sent to /ingest:
+- telemetry sample + expanded device fields + AC fields + attendanceEvent
+- pipelineLive flag based on mqtt gap threshold (<= 10s)
+
+Downtime branch:
+- Inject every 1s: "Downtime tick 1s"
+- Function: "Build downtime tick POST"
+  - calculates stable live/dead with hysteresis:
+    - live threshold ~4s
+    - dead threshold ~7s
+    - dead streak debounce to prevent flicker
+  - stores flow.pipelineStableLive and flow.pipelineDeadPollStreak
+- HTTP request: POST http://host.docker.internal:4050/api/storage/downtime/tick
+
+Effect:
+- storage bridge tracks total offline duration persistently.
+
+
+-----------------------------------------------------------------------------
+3.4 Control command publishing (to Wokwi)
+-----------------------------------------------------------------------------
+
+MQTT out:
+- topic smartclass/demo01/command
+
+Command sources:
+- UI buttons/switches in Node-RED dashboard (AUTO/manual light/fan/presets/schedule)
+- HTTP API POST /api/command
+- AC automation helper function
+
+HTTP command endpoint flow:
+- POST /api/command
+- JSON parse
+- "API Command Normalizer"
+  - validates command object
+  - updates flow.acBaseSetpoint when setpoint-related fields appear
+  - serializes command JSON
+- branch 1 -> MQTT out (actual control path)
+- branch 2 -> immediate HTTP ack response
+
+
+-----------------------------------------------------------------------------
+3.5 Schedule logic and enforcement
+-----------------------------------------------------------------------------
+
+Schedule window:
+- 08:00 to 18:00 (classroom timezone aware)
+
+Schedule function behavior:
+- if schedule enabled and outside window -> command:
+  - forceOff: true
+  - afterHoursAlert: true
+  - acPower: false
+- inside window -> command:
+  - forceOff: false
+  - afterHoursAlert: false
+  - acPower: true
+
+Schedule controls:
+- periodic checker inject (every 30s)
+- manual toggle function/button
+- API endpoints:
+  - POST /api/schedule-toggle (also publishes command)
+  - GET /api/schedule-state
+
+Timezone handling:
+- supports classroom timezone from query/body (classroomTz)
+- falls back to CLASSROOM_TIMEZONE env or local runtime timezone
+
+
+-----------------------------------------------------------------------------
+3.6 AC automation helper (hysteresis/cooldown)
+-----------------------------------------------------------------------------
+
+Function node:
+- "AC Automation Command (hysteresis/cooldown)"
+
+Runs only when:
+- AC mode is auto
+- not forceOff
+- room occupied
+- AC power enabled
+- temperature is valid
+
+Behavior:
+- uses base setpoint (flow.acBaseSetpoint)
+- hysteresis:
+  - ON threshold: base + 0.7
+  - OFF threshold: base - 0.4
+- cooldown between auto commands: 120 seconds
+- publishes acSetpoint adjustments to avoid rapid toggle chatter
+
+
+-----------------------------------------------------------------------------
+3.7 Analytics + ML + AI branches in Node-RED
+-----------------------------------------------------------------------------
+
+Analytics derived nodes:
+- Occupancy Timer
+- Occupancy Sessions
+- Estimated Energy Saved
+- High Temp Warning
+
+ML nodes:
+- predictor + assist logic populate flow.latestMl
+- GET /api/ml returns latest ML object
+
+AI report nodes:
+- POST /api/ai-report
+- "API AI Report Prepare"
+  - builds structured context from telemetry + summary + ML + schedule
+  - prepares strict 6-line response format prompt
+- if no GROQ key -> local fallback summary returned
+- else native HTTPS call to api.groq.com
+- "API AI Distribute"
+  - stores flow.latestAiReport
+  - returns HTTP response for frontend
+  - also updates Node-RED dashboard text
+
+
+-----------------------------------------------------------------------------
+3.8 Attendance API proxy layer inside Node-RED
+-----------------------------------------------------------------------------
+
+Node-RED does not compute attendance itself in this final version.
+It proxies attendance APIs to storage bridge:
+
+- GET /api/attendance -> storage /api/storage/attendance/live
+- GET /api/attendance/live -> storage /api/storage/attendance/live
+- POST /api/attendance/reset -> storage /api/storage/attendance/reset
+- POST /api/attendance/session/start -> storage /api/storage/attendance/session/start
+- POST /api/attendance/session/end -> storage /api/storage/attendance/session/end
+- GET /api/attendance/export.csv -> storage /api/storage/attendance/export.csv
+  (with CSV response headers set before reply)
+
+This keeps frontend integration simple: frontend always talks to Node-RED on /api/*.
+
+
+-----------------------------------------------------------------------------
+3.9 HTTP API surface exposed by final Node-RED flow
+-----------------------------------------------------------------------------
+
+Dashboard/telemetry:
+- GET /api/telemetry
+- GET /api/dashboard-summary
+- GET /api/ml
+- POST /api/command
+- POST /api/ai-report
+- POST /api/schedule-toggle
+- GET /api/schedule-state
+
+Attendance:
+- GET /api/attendance
+- GET /api/attendance/live
+- POST /api/attendance/reset
+- POST /api/attendance/session/start
+- POST /api/attendance/session/end
+- GET /api/attendance/export.csv
+
+
+===============================================================================
+4) STORAGE BRIDGE ROLE (FINAL DATA PERSISTENCE LAYER)
+===============================================================================
+
+File:
+- storage-bridge.mjs
+
+Default bind:
+- 127.0.0.1:4050 (configurable by env)
+
+Core responsibilities:
+- persist telemetry lines (telemetry.jsonl)
+- build/persist occupancy sessions from occupied transitions
+- track cumulative downtime
+- process attendance events and session workflow
+- provide trend/history/attendance/storage APIs
+
+Important persistence files:
+- data/telemetry.jsonl
+- data/occupancy-sessions.json
+- data/bridge-state.json
+- data/downtime.json
+- data/attendance-events.jsonl
+- data/attendance-scan-log.jsonl
+- data/attendance-session.json
+- data/attendance-bridge-state.json
+
+Attendance classification logic (in storage bridge):
+- invalid if session inactive or unknown card
+- duplicate if rapid re-scan inside suppress window
+- late if accepted after session late threshold
+- present otherwise
+
+This is why firmware only sends tag events; final authoritative attendance status is computed here.
+
+
+===============================================================================
+5) HOW EVERYTHING LINKS TO THE FRONTEND DASHBOARD
+===============================================================================
+
+-----------------------------------------------------------------------------
+5.1 Frontend integration model
+-----------------------------------------------------------------------------
+
+Frontend is a thin client around Node-RED + storage bridge APIs.
+
+Main frontend API service:
+- frontend/src/services/api.ts (Node-RED APIs)
+
+Storage API service:
+- frontend/src/services/storageApi.ts (bridge APIs under /api/storage)
+
+Route handling:
+- hash routing in App.tsx
+  - # (or empty) -> Home dashboard
+  - #attendance -> Attendance page
+
+
+-----------------------------------------------------------------------------
+5.2 Live polling and freshness behavior
+-----------------------------------------------------------------------------
+
+Polling interval:
+- DASHBOARD_POLL_MS = 1000 ms (useDashboardData)
+- Attendance polling also runs at 1000 ms cadence
+
+Dashboard polling calls:
+- telemetry
+- dashboard summary
+- ML
+- schedule state
+- storage info / trend / occupancy sessions / downtime as needed
+
+Freshness signal:
+- /api/telemetry includes lastWokwiMqttMs + serverTimeMs
+- frontend computes age and applies stable live/dead hysteresis
+- when pipeline is stale, UI shows disconnect behavior:
+  - header indicator changes
+  - gauge can show NA
+  - trend uses null segments to show line gaps
+
+
+-----------------------------------------------------------------------------
+5.3 Home dashboard runtime behavior (control + monitor loop)
+-----------------------------------------------------------------------------
+
+Read path:
+1) Wokwi telemetry arrives to Node-RED.
+2) Node-RED updates latestTelemetry/latestDashboardSummary.
+3) Frontend polls and renders cards:
+   - room status
+   - device states (10 lights / 6 fans)
+   - AC state
+   - temperature gauge + trend windows
+   - analytics + ML + AI + storage status
+
+Write path (commands):
+1) user action in frontend (mode/light/fan/ac/schedule)
+2) frontend POST -> /api/command (or /api/schedule-toggle)
+3) Node-RED normalizes and publishes MQTT command
+4) Wokwi applies command in firmware logic
+5) new telemetry confirms resulting state
+6) frontend sees updated state on next poll
+
+This closed loop provides near-real-time command confirmation.
+
+
+-----------------------------------------------------------------------------
+5.4 Attendance page runtime behavior
+-----------------------------------------------------------------------------
+
+Session control:
+- Start Session -> POST /api/attendance/session/start
+- End Session -> POST /api/attendance/session/end
+- Reset -> POST /api/attendance/reset
+
+Data flow for a scan:
+1) card scanned on Wokwi MFRC522
+2) firmware embeds attendanceEvent in telemetry
+3) Node-RED forwards to storage bridge /ingest
+4) storage bridge classifies scan (present/late/duplicate/invalid)
+5) frontend polls /api/attendance/live
+6) KPIs, recent scans, and student table update
+
+Export flow:
+- frontend uses /api/attendance/export.csv URL
+- Node-RED proxies to storage bridge CSV endpoint
+- browser downloads CSV report
+
+
+-----------------------------------------------------------------------------
+5.5 Why this architecture works well in final version
+-----------------------------------------------------------------------------
+
+- Firmware remains focused on device-level control and telemetry production.
+- Node-RED remains orchestration + API gateway + runtime logic layer.
+- Storage bridge centralizes persistence and attendance state machine.
+- Frontend remains stateless/poll-based and easy to evolve.
+- Backward compatibility is preserved (legacy light/fan + expanded counts/masks).
+- System still works with partial failure (AI fallback, mock fallback, stale detection).
+
+
+===============================================================================
+6) FINAL REFERENCE CHEAT SHEET
+===============================================================================
+
+MQTT topics:
+- smartclass/demo01/telemetry
+- smartclass/demo01/command
+- smartclass/demo01/status
+
+Ports:
+- Node-RED: 1880
+- Storage bridge: 4050
+- Frontend (Vite dev): 5173 (or next free)
+
+Final known attendance card UIDs:
+- 01:02:03:04
+- 11:22:33:44
+- 55:66:77:88
+- AA:BB:CC:DD
+- 04:11:22:33
+- C0:FF:EE:99
+
+Critical flow files:
+- all_flows_edit.json
+- backend-reference/wokwi_project_phase1_lights_fans_ac/sketch.ino
+- backend-reference/wokwi_project_phase1_lights_fans_ac/diagram.json
+- storage-bridge.mjs
+- frontend/src/hooks/useDashboardData.ts
+- frontend/src/hooks/useAttendanceData.ts
+- frontend/src/services/api.ts
+- frontend/src/services/storageApi.ts
+
+END OF DOCUMENT
