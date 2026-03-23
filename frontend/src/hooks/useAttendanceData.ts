@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { dashboardApi } from "../services/api";
-import type { AttendanceSummaryPayload } from "../types/dashboard";
+import type { AttendanceLivePayload } from "../types/dashboard";
 
 const ATTENDANCE_POLL_MS = 2500;
 
 export function useAttendanceData() {
-  const [data, setData] = useState<AttendanceSummaryPayload | null>(null);
+  const [data, setData] = useState<AttendanceLivePayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const inFlightRef = useRef(false);
@@ -14,7 +14,7 @@ export function useAttendanceData() {
     if (inFlightRef.current) return;
     inFlightRef.current = true;
     try {
-      const res = await dashboardApi.getAttendance();
+      const res = await dashboardApi.getAttendanceLive();
       setData(res);
       setError(null);
     } catch (e) {
@@ -39,11 +39,31 @@ export function useAttendanceData() {
     await load();
   }, [load]);
 
-  const presentTags = useMemo(() => {
+  const startSession = useCallback(
+    async (input?: {
+      className?: string;
+      courseName?: string;
+      section?: string;
+      lateAfterMinutes?: number;
+      duplicateSuppressMs?: number;
+      absenceTimeoutMs?: number;
+    }) => {
+      await dashboardApi.startAttendanceSession(input);
+      await load();
+    },
+    [load],
+  );
+
+  const endSession = useCallback(async () => {
+    await dashboardApi.endAttendanceSession();
+    await load();
+  }, [load]);
+
+  const presentStudents = useMemo(() => {
     if (!data) return [];
-    return Array.isArray(data.tags) ? data.tags.filter((t) => t.present) : [];
+    return Array.isArray(data.students) ? data.students.filter((t) => t.state !== "absent") : [];
   }, [data]);
 
-  return { data, loading, error, reset, presentTags };
+  return { data, loading, error, reset, startSession, endSession, presentStudents };
 }
 

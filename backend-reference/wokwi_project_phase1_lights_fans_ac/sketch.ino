@@ -96,6 +96,19 @@ String lastAttendanceTagId = "";
 unsigned long lastAttendanceEventAtMs = 0;
 const unsigned long ATTENDANCE_LOCAL_SUPPRESS_MS = 5000;
 
+// Sample roster tag map (must match backend roster for "valid card" feedback).
+// If a scanned UID is not in this table, Wokwi gives "invalid card" feedback and
+// backend will classify it as invalid/unknown.
+const char* KNOWN_TAG_UIDS[] = {
+  "01:02:03:04",             // Blue Card
+  "11:22:33:44",             // Green Card
+  "55:66:77:88",             // Yellow Card
+  "AA:BB:CC:DD",             // Red Card
+  "04:11:22:33",             // NFC Tag (Wokwi currently reports 4-byte UID)
+  "C0:FF:EE:99",             // Key Fob
+};
+const int KNOWN_TAG_COUNT = sizeof(KNOWN_TAG_UIDS) / sizeof(KNOWN_TAG_UIDS[0]);
+
 // AC simulation state
 bool acPower = true;     // main AC power
 bool acModeAuto = true; // true => thermostat logic uses tempThreshold; false => manual AC power controls cooling
@@ -126,6 +139,34 @@ void connectWiFi() {
 
 void publishStatus(const char* text) {
   mqttClient.publish(TOPIC_STATUS, text);
+}
+
+bool isKnownAttendanceTag(const String& uid) {
+  for (int i = 0; i < KNOWN_TAG_COUNT; i++) {
+    if (uid.equalsIgnoreCase(KNOWN_TAG_UIDS[i])) return true;
+  }
+  return false;
+}
+
+void attendanceBeepPattern(const char* pattern) {
+  if (strcmp(pattern, "valid") == 0) {
+    tone(BUZZER_PIN, 2200, 70);
+    delay(90);
+    tone(BUZZER_PIN, 2400, 90);
+    delay(110);
+    noTone(BUZZER_PIN);
+    return;
+  }
+  if (strcmp(pattern, "duplicate") == 0) {
+    tone(BUZZER_PIN, 1600, 70);
+    delay(90);
+    noTone(BUZZER_PIN);
+    return;
+  }
+  // invalid
+  tone(BUZZER_PIN, 700, 220);
+  delay(240);
+  noTone(BUZZER_PIN);
 }
 
 // Send 16-bit output mask to two chained 74HC595 chips.
@@ -348,6 +389,7 @@ void pollRfidAttendance() {
   unsigned long nowMs = millis();
   bool shouldQueue =
       (uid != lastAttendanceTagId) || (nowMs - lastAttendanceEventAtMs >= ATTENDANCE_LOCAL_SUPPRESS_MS);
+  bool knownTag = isKnownAttendanceTag(uid);
 
   lastAttendanceTagId = uid;
   if (shouldQueue) {
@@ -356,7 +398,18 @@ void pollRfidAttendance() {
     telemetryDirty = true; // ensure telemetry is published soon with the attendance event
     lastAttendanceEventAtMs = nowMs;
     Serial.print("RFID queued tagId=");
+    Serial.print(uid);
+    if (knownTag) {
+      Serial.println(" (known card; backend will mark present/late)");
+      attendanceBeepPattern("valid");
+    } else {
+      Serial.println(" (unknown card; backend will mark invalid)");
+      attendanceBeepPattern("invalid");
+    }
+  } else {
+    Serial.print("RFID duplicate suppressed tagId=");
     Serial.println(uid);
+    attendanceBeepPattern("duplicate");
   }
 
   // Stop PICC so the next scan triggers cleanly.

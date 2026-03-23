@@ -19,6 +19,8 @@ const STATE_FILE = path.join(DATA_DIR, "bridge-state.json");
 const DOWNTIME_FILE = path.join(DATA_DIR, "downtime.json");
 const ATTENDANCE_EVENTS_FILE = path.join(DATA_DIR, "attendance-events.jsonl");
 const ATTENDANCE_STATE_FILE = path.join(DATA_DIR, "attendance-bridge-state.json");
+const ATTENDANCE_SESSION_FILE = path.join(DATA_DIR, "attendance-session.json");
+const ATTENDANCE_SCAN_LOG_FILE = path.join(DATA_DIR, "attendance-scan-log.jsonl");
 
 /** Since this process started (helps diagnose “bridge reachable” but Node-RED never hits /ingest). */
 let bridgeIngestCount = 0;
@@ -228,19 +230,12 @@ function processIngest(body) {
   // Optional attendance event ingest (from Wokwi telemetry)
   const attendanceEv = normalizeAttendanceEvent(body.attendanceEvent);
   if (attendanceEv) {
-    const st = loadAttendanceBridgeState();
-    const now = receivedAt;
-    const SUPPRESS_MS = 5000;
-    const lastAt = st.lastEventAtMsByTag[attendanceEv.tagId];
-    if (typeof lastAt !== "number" || now - lastAt >= SUPPRESS_MS) {
-      appendAttendanceEventRow({
-        receivedAt: now,
-        tagId: attendanceEv.tagId,
-        eventType: attendanceEv.eventType,
-      });
-      st.lastEventAtMsByTag[attendanceEv.tagId] = now;
-      saveAttendanceBridgeState(st);
-    }
+    appendAttendanceEventRow({
+      receivedAt,
+      tagId: attendanceEv.tagId,
+      eventType: attendanceEv.eventType,
+    });
+    processAttendanceEvent(attendanceEv, receivedAt);
   }
 
   let state = loadState();
@@ -438,7 +433,15 @@ function storageInfo() {
 
 function clearStorage() {
   ensureDir();
-  for (const f of [TELEMETRY_FILE, SESSIONS_FILE, STATE_FILE, ATTENDANCE_EVENTS_FILE, ATTENDANCE_STATE_FILE]) {
+  for (const f of [
+    TELEMETRY_FILE,
+    SESSIONS_FILE,
+    STATE_FILE,
+    ATTENDANCE_EVENTS_FILE,
+    ATTENDANCE_STATE_FILE,
+    ATTENDANCE_SCAN_LOG_FILE,
+    ATTENDANCE_SESSION_FILE,
+  ]) {
     try {
       fs.unlinkSync(f);
     } catch {
@@ -454,8 +457,14 @@ function clearStorage() {
 
 function loadAttendanceBridgeState() {
   const s = readJsonSafe(ATTENDANCE_STATE_FILE, {});
-  const lastEventAtMsByTag = s.lastEventAtMsByTag && typeof s.lastEventAtMsByTag === "object" ? s.lastEventAtMsByTag : {};
-  return { lastEventAtMsByTag };
+  return {
+    lastScanAtByTag:
+      s.lastScanAtByTag && typeof s.lastScanAtByTag === "object" ? s.lastScanAtByTag : {},
+    lastAcceptedAtByStudentId:
+      s.lastAcceptedAtByStudentId && typeof s.lastAcceptedAtByStudentId === "object"
+        ? s.lastAcceptedAtByStudentId
+        : {},
+  };
 }
 
 function saveAttendanceBridgeState(st) {
@@ -468,12 +477,17 @@ function normalizeAttendanceEvent(ev) {
   const tagId = typeof tagIdRaw === "string" ? tagIdRaw.trim() : "";
   if (!tagId) return null;
   const eventType = typeof ev.eventType === "string" ? ev.eventType : "present";
-  return { tagId, eventType };
+  return { tagId: tagId.toUpperCase(), eventType };
 }
 
 function appendAttendanceEventRow(row) {
   ensureDir();
   fs.appendFileSync(ATTENDANCE_EVENTS_FILE, `${JSON.stringify(row)}\n`, "utf8");
+}
+
+function appendAttendanceScanLogRow(row) {
+  ensureDir();
+  fs.appendFileSync(ATTENDANCE_SCAN_LOG_FILE, `${JSON.stringify(row)}\n`, "utf8");
 }
 
 function parseAttendanceEvents() {
@@ -493,6 +507,293 @@ function parseAttendanceEvents() {
       }
     })
     .filter(Boolean);
+}
+
+function parseAttendanceScanLog() {
+  ensureDir();
+  if (!fs.existsSync(ATTENDANCE_SCAN_LOG_FILE)) return [];
+  const buf = fs.readFileSync(ATTENDANCE_SCAN_LOG_FILE, "utf8");
+  if (!buf.trim()) return [];
+  return buf
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((ln) => {
+      try {
+        return JSON.parse(ln);
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+}
+
+const DEFAULT_ATTENDANCE_ROSTER = [
+  { studentId: "SC-001", name: "Aanya Rao", tagId: "01:02:03:04", section: "CSE-A" }, // Blue Card
+  { studentId: "SC-002", name: "Mohammed Ali", tagId: "11:22:33:44", section: "CSE-A" }, // Green Card
+  { studentId: "SC-003", name: "Riya Patel", tagId: "55:66:77:88", section: "CSE-A" }, // Yellow Card
+  { studentId: "SC-004", name: "Daniel James", tagId: "AA:BB:CC:DD", section: "CSE-A" }, // Red Card
+  { studentId: "SC-005", name: "Sara Khan", tagId: "04:11:22:33", section: "CSE-A" }, // NFC Tag (Wokwi 4-byte UID)
+  { studentId: "SC-006", name: "Vikram Nair", tagId: "C0:FF:EE:99", section: "CSE-A" }, // Key Fob
+];
+
+function normalizedRoster() {
+  return DEFAULT_ATTENDANCE_ROSTER.map((s) => ({
+    ...s,
+    tagId: String(s.tagId || "").trim().toUpperCase(),
+  }));
+}
+
+function loadAttendanceSession() {
+  const s = readJsonSafe(ATTENDANCE_SESSION_FILE, {});
+  return {
+    active: Boolean(s.active),
+    sessionId: typeof s.sessionId === "string" ? s.sessionId : null,
+    className: typeof s.className === "string" ? s.className : "Smart Classroom Demo",
+    courseName: typeof s.courseName === "string" ? s.courseName : "IoT Systems Lab",
+    section: typeof s.section === "string" ? s.section : "CSE-A",
+    startedAtMs: typeof s.startedAtMs === "number" ? s.startedAtMs : null,
+    endedAtMs: typeof s.endedAtMs === "number" ? s.endedAtMs : null,
+    lateAfterMs: typeof s.lateAfterMs === "number" ? s.lateAfterMs : null,
+    duplicateSuppressMs:
+      typeof s.duplicateSuppressMs === "number" && s.duplicateSuppressMs > 0 ? s.duplicateSuppressMs : 5000,
+    absenceTimeoutMs:
+      typeof s.absenceTimeoutMs === "number" && s.absenceTimeoutMs > 0 ? s.absenceTimeoutMs : 60_000,
+  };
+}
+
+function saveAttendanceSession(s) {
+  writeJsonAtomic(ATTENDANCE_SESSION_FILE, s);
+}
+
+function startAttendanceSession(body = {}) {
+  const now = Date.now();
+  const duplicateSuppressMs = Number.isFinite(body.duplicateSuppressMs)
+    ? Math.max(500, Number(body.duplicateSuppressMs))
+    : 5000;
+  const absenceTimeoutMs = Number.isFinite(body.absenceTimeoutMs)
+    ? Math.max(10_000, Number(body.absenceTimeoutMs))
+    : 60_000;
+  const lateAfterMinutes = Number.isFinite(body.lateAfterMinutes)
+    ? Math.max(0, Number(body.lateAfterMinutes))
+    : 10;
+  const session = {
+    active: true,
+    sessionId: `session-${now}`,
+    className:
+      typeof body.className === "string" && body.className.trim()
+        ? body.className.trim()
+        : "Smart Classroom Demo",
+    courseName:
+      typeof body.courseName === "string" && body.courseName.trim()
+        ? body.courseName.trim()
+        : "IoT Systems Lab",
+    section:
+      typeof body.section === "string" && body.section.trim() ? body.section.trim() : "CSE-A",
+    startedAtMs: now,
+    endedAtMs: null,
+    lateAfterMs: now + lateAfterMinutes * 60 * 1000,
+    duplicateSuppressMs,
+    absenceTimeoutMs,
+  };
+  saveAttendanceSession(session);
+  saveAttendanceBridgeState({
+    lastScanAtByTag: {},
+    lastAcceptedAtByStudentId: {},
+  });
+  return { ok: true, session };
+}
+
+function endAttendanceSession() {
+  const s = loadAttendanceSession();
+  if (!s.active) return { ok: true, session: s };
+  const next = { ...s, active: false, endedAtMs: Date.now() };
+  saveAttendanceSession(next);
+  return { ok: true, session: next };
+}
+
+function clearAttendanceStorage() {
+  for (const f of [ATTENDANCE_EVENTS_FILE, ATTENDANCE_STATE_FILE, ATTENDANCE_SCAN_LOG_FILE]) {
+    try {
+      if (fs.existsSync(f)) fs.unlinkSync(f);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function processAttendanceEvent(ev, receivedAtMs) {
+  const roster = normalizedRoster();
+  const byTag = new Map(roster.map((s) => [s.tagId, s]));
+  const session = loadAttendanceSession();
+  const st = loadAttendanceBridgeState();
+  const tagId = ev.tagId;
+  const student = byTag.get(tagId);
+
+  let status = "present";
+  let reason = "";
+  let late = false;
+
+  if (!session.active || !session.startedAtMs) {
+    status = "invalid";
+    reason = "session_inactive";
+  } else if (!student) {
+    status = "invalid";
+    reason = "unknown_card";
+  } else {
+    const lastAt = st.lastScanAtByTag[tagId];
+    if (typeof lastAt === "number" && receivedAtMs - lastAt < session.duplicateSuppressMs) {
+      status = "duplicate";
+      reason = "rapid_rescan";
+    } else {
+      late = receivedAtMs >= (session.lateAfterMs || session.startedAtMs + 10 * 60 * 1000);
+      status = late ? "late" : "present";
+      reason = late ? "late_threshold_exceeded" : "accepted";
+      st.lastAcceptedAtByStudentId[student.studentId] = receivedAtMs;
+    }
+  }
+
+  st.lastScanAtByTag[tagId] = receivedAtMs;
+  saveAttendanceBridgeState(st);
+
+  const scanRow = {
+    receivedAt: receivedAtMs,
+    tagId,
+    eventType: ev.eventType || "present",
+    sessionId: session.sessionId,
+    status,
+    reason,
+    late,
+    studentId: student?.studentId ?? null,
+    studentName: student?.name ?? null,
+    section: student?.section ?? null,
+  };
+  appendAttendanceScanLogRow(scanRow);
+  return scanRow;
+}
+
+function attendanceLiveNow() {
+  const nowMs = Date.now();
+  const roster = normalizedRoster();
+  const byStudentId = new Map(roster.map((s) => [s.studentId, s]));
+  const session = loadAttendanceSession();
+  const scans = parseAttendanceScanLog();
+  const inSession = scans
+    .filter((r) => {
+      if (typeof r.receivedAt !== "number") return false;
+      if (!session.sessionId) return true;
+      return r.sessionId === session.sessionId;
+    })
+    .sort((a, b) => a.receivedAt - b.receivedAt);
+
+  const studentAgg = new Map();
+  let invalidCount = 0;
+  let duplicateCount = 0;
+  for (const row of inSession) {
+    if (row.status === "invalid") invalidCount += 1;
+    if (row.status === "duplicate") duplicateCount += 1;
+    if (!row.studentId) continue;
+    let agg = studentAgg.get(row.studentId);
+    if (!agg) {
+      agg = {
+        studentId: row.studentId,
+        firstSeenAtMs: row.receivedAt,
+        lastSeenAtMs: row.receivedAt,
+        scanCount: 1,
+        late: row.status === "late",
+      };
+      studentAgg.set(row.studentId, agg);
+    } else {
+      agg.lastSeenAtMs = Math.max(agg.lastSeenAtMs, row.receivedAt);
+      agg.scanCount += 1;
+      agg.late = agg.late || row.status === "late";
+    }
+  }
+
+  const students = roster.map((s) => {
+    const agg = studentAgg.get(s.studentId);
+    const state = !agg ? "absent" : agg.late ? "late" : "present";
+    return {
+      studentId: s.studentId,
+      name: s.name,
+      section: s.section,
+      tagId: s.tagId,
+      state,
+      firstSeenAtIso: agg ? new Date(agg.firstSeenAtMs).toISOString() : null,
+      lastSeenAtIso: agg ? new Date(agg.lastSeenAtMs).toISOString() : null,
+      scanCount: agg ? agg.scanCount : 0,
+      attendancePercent: agg ? 100 : 0,
+    };
+  });
+
+  const presentCount = students.filter((s) => s.state === "present").length;
+  const lateCount = students.filter((s) => s.state === "late").length;
+  const absentCount = students.filter((s) => s.state === "absent").length;
+
+  const recentScans = inSession
+    .slice(-50)
+    .reverse()
+    .map((r) => ({
+      receivedAtIso: new Date(r.receivedAt).toISOString(),
+      tagId: r.tagId,
+      status: r.status,
+      reason: r.reason,
+      studentId: r.studentId,
+      studentName: r.studentName,
+    }));
+
+  return {
+    ok: true,
+    className: session.className,
+    courseName: session.courseName,
+    section: session.section,
+    session: {
+      sessionId: session.sessionId,
+      active: session.active,
+      startedAtMs: session.startedAtMs,
+      endedAtMs: session.endedAtMs,
+      lateAfterMs: session.lateAfterMs,
+      duplicateSuppressMs: session.duplicateSuppressMs,
+      absenceTimeoutMs: session.absenceTimeoutMs,
+      nowMs,
+    },
+    stats: {
+      rosterCount: roster.length,
+      presentCount,
+      lateCount,
+      absentCount,
+      invalidCount,
+      duplicateCount,
+      attendancePercent:
+        roster.length > 0 ? Math.round(((presentCount + lateCount) / roster.length) * 1000) / 10 : 0,
+    },
+    students,
+    recentScans,
+  };
+}
+
+function attendanceSummaryNow() {
+  const live = attendanceLiveNow();
+  const tags = live.students.map((s) => ({
+    tagId: s.tagId,
+    firstSeenAtIso: s.firstSeenAtIso || new Date(0).toISOString(),
+    lastSeenAtIso: s.lastSeenAtIso || new Date(0).toISOString(),
+    eventCount: s.scanCount,
+    late: s.state === "late",
+    present: s.state === "present",
+    endedAtIso: s.state === "absent" ? (s.lastSeenAtIso || null) : null,
+  }));
+  return {
+    ok: true,
+    session: {
+      sessionStartMs: live.session.startedAtMs || Date.now(),
+      sessionEndMs: live.session.endedAtMs || Date.now(),
+      lateAfterMs: live.session.lateAfterMs || Date.now(),
+      absenceTimeoutMs: live.session.absenceTimeoutMs,
+    },
+    presentCount: live.stats.presentCount + live.stats.lateCount,
+    tags,
+  };
 }
 
 function scheduleWindowMsFromNow(nowMs, timeZone) {
@@ -518,71 +819,6 @@ function scheduleWindowMsFromNow(nowMs, timeZone) {
   const sessionStartMs = new Date(Date.UTC(year, month, day, 8, 0, 0)).getTime();
   const sessionEndMs = new Date(Date.UTC(year, month, day, 18, 0, 0)).getTime();
   return { sessionStartMs, sessionEndMs };
-}
-
-function attendanceSummaryNow() {
-  const nowMs = Date.now();
-  const tz = process.env.CLASSROOM_TIMEZONE || "";
-  const { sessionStartMs, sessionEndMs } = scheduleWindowMsFromNow(nowMs, tz);
-
-  const lateAfterMs = sessionStartMs + 10 * 60 * 1000; // 10 minutes after window start
-  const absenceTimeoutMs = 60 * 1000; // consider absent after 1 minute without scans
-
-  // If outside the window, still compute using the last "today" session range.
-  // (Wokwi can still emit events; UI will show them in that range.)
-  const sinceMs = nowMs < sessionStartMs ? sessionStartMs : sessionStartMs;
-
-  const rows = parseAttendanceEvents().filter((r) => typeof r.receivedAt === "number" && r.receivedAt >= sinceMs);
-  rows.sort((a, b) => a.receivedAt - b.receivedAt);
-
-  const byTag = new Map();
-  for (const r of rows) {
-    const tagId = r.tagId;
-    if (typeof tagId !== "string" || !tagId.trim()) continue;
-    const at = r.receivedAt;
-
-    let entry = byTag.get(tagId);
-    if (!entry) {
-      entry = { tagId, firstSeenAtMs: at, lastSeenAtMs: at, eventCount: 1, late: at >= lateAfterMs };
-      byTag.set(tagId, entry);
-    } else {
-      entry.lastSeenAtMs = Math.max(entry.lastSeenAtMs, at);
-      entry.eventCount += 1;
-      entry.late = entry.late || at >= lateAfterMs;
-    }
-  }
-
-  const tags = [];
-  for (const entry of byTag.values()) {
-    const present = nowMs - entry.lastSeenAtMs <= absenceTimeoutMs;
-    tags.push({
-      tagId: entry.tagId,
-      firstSeenAtIso: new Date(entry.firstSeenAtMs).toISOString(),
-      lastSeenAtIso: new Date(entry.lastSeenAtMs).toISOString(),
-      eventCount: entry.eventCount,
-      late: entry.late,
-      present,
-      endedAtIso: present ? null : new Date(entry.lastSeenAtMs).toISOString(),
-    });
-  }
-
-  tags.sort((a, b) => {
-    if (a.present !== b.present) return a.present ? -1 : 1;
-    if (a.late !== b.late) return a.late ? -1 : 1;
-    return a.firstSeenAtIso.localeCompare(b.firstSeenAtIso);
-  });
-
-  return {
-    ok: true,
-    session: {
-      sessionStartMs,
-      sessionEndMs,
-      lateAfterMs,
-      absenceTimeoutMs,
-    },
-    presentCount: tags.filter((t) => t.present).length,
-    tags,
-  };
 }
 
 const server = http.createServer(async (req, res) => {
@@ -653,14 +889,76 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "POST" && url.pathname === "/api/storage/attendance/reset") {
-      try {
-        if (fs.existsSync(ATTENDANCE_EVENTS_FILE)) fs.unlinkSync(ATTENDANCE_EVENTS_FILE);
-      } catch {}
-      try {
-        if (fs.existsSync(ATTENDANCE_STATE_FILE)) fs.unlinkSync(ATTENDANCE_STATE_FILE);
-      } catch {}
+      clearAttendanceStorage();
+      saveAttendanceSession({
+        active: false,
+        sessionId: null,
+        className: "Smart Classroom Demo",
+        courseName: "IoT Systems Lab",
+        section: "CSE-A",
+        startedAtMs: null,
+        endedAtMs: null,
+        lateAfterMs: null,
+        duplicateSuppressMs: 5000,
+        absenceTimeoutMs: 60_000,
+      });
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/storage/attendance/session/start") {
+      const body = await readBody(req);
+      const out = startAttendanceSession(body || {});
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(out));
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/storage/attendance/session/end") {
+      const out = endAttendanceSession();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(out));
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/storage/attendance/live") {
+      const out = attendanceLiveNow();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(out));
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/storage/attendance/roster") {
+      const roster = normalizedRoster();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true, roster }));
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/storage/attendance/export.csv") {
+      const live = attendanceLiveNow();
+      const rows = [
+        "studentId,name,section,tagId,state,firstSeenAtIso,lastSeenAtIso,scanCount,attendancePercent",
+        ...live.students.map((s) =>
+          [
+            s.studentId,
+            `"${String(s.name).replace(/"/g, '""')}"`,
+            s.section,
+            s.tagId,
+            s.state,
+            s.firstSeenAtIso || "",
+            s.lastSeenAtIso || "",
+            String(s.scanCount),
+            String(s.attendancePercent),
+          ].join(","),
+        ),
+      ];
+      res.writeHead(200, {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": `attachment; filename="attendance-${live.session.sessionId || "session"}.csv"`,
+      });
+      res.end(rows.join("\n"));
       return;
     }
 

@@ -29,6 +29,58 @@ export interface AttendanceSummaryPayload {
   tags: AttendanceTagSummary[];
 }
 
+export type AttendanceScanStatus = "present" | "late" | "duplicate" | "invalid";
+export type AttendanceStudentState = "present" | "late" | "absent";
+
+export interface AttendanceLiveScanRow {
+  receivedAtIso: string;
+  tagId: string;
+  status: AttendanceScanStatus;
+  reason: string;
+  studentId: string | null;
+  studentName: string | null;
+}
+
+export interface AttendanceStudentRow {
+  studentId: string;
+  name: string;
+  section: string;
+  tagId: string;
+  state: AttendanceStudentState;
+  firstSeenAtIso: string | null;
+  lastSeenAtIso: string | null;
+  scanCount: number;
+  attendancePercent: number;
+}
+
+export interface AttendanceLivePayload {
+  ok: boolean;
+  className: string;
+  courseName: string;
+  section: string;
+  session: {
+    sessionId: string | null;
+    active: boolean;
+    startedAtMs: number | null;
+    endedAtMs: number | null;
+    lateAfterMs: number | null;
+    duplicateSuppressMs: number;
+    absenceTimeoutMs: number;
+    nowMs: number;
+  };
+  stats: {
+    rosterCount: number;
+    presentCount: number;
+    lateCount: number;
+    absentCount: number;
+    invalidCount: number;
+    duplicateCount: number;
+    attendancePercent: number;
+  };
+  students: AttendanceStudentRow[];
+  recentScans: AttendanceLiveScanRow[];
+}
+
 export interface TelemetryPayload {
   temperature: number;
   motion: boolean;

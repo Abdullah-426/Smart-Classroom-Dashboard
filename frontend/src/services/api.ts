@@ -1,5 +1,6 @@
 import type {
   AiReportPayload,
+  AttendanceLivePayload,
   AttendanceSummaryPayload,
   CommandPayload,
   DashboardSummaryPayload,
@@ -288,5 +289,67 @@ export const dashboardApi = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),
     });
+  },
+
+  async getAttendanceLive(): Promise<AttendanceLivePayload> {
+    if (FORCE_MOCK) {
+      return {
+        ok: true,
+        className: "Smart Classroom Demo",
+        courseName: "IoT Systems Lab",
+        section: "CSE-A",
+        session: {
+          sessionId: null,
+          active: false,
+          startedAtMs: null,
+          endedAtMs: null,
+          lateAfterMs: null,
+          duplicateSuppressMs: 5000,
+          absenceTimeoutMs: 60_000,
+          nowMs: Date.now(),
+        },
+        stats: {
+          rosterCount: 0,
+          presentCount: 0,
+          lateCount: 0,
+          absentCount: 0,
+          invalidCount: 0,
+          duplicateCount: 0,
+          attendancePercent: 0,
+        },
+        students: [],
+        recentScans: [],
+      };
+    }
+    return requestJson<AttendanceLivePayload>("/api/attendance/live");
+  },
+
+  async startAttendanceSession(input?: {
+    className?: string;
+    courseName?: string;
+    section?: string;
+    lateAfterMinutes?: number;
+    duplicateSuppressMs?: number;
+    absenceTimeoutMs?: number;
+  }): Promise<{ ok: boolean }> {
+    if (FORCE_MOCK) return { ok: true };
+    return requestJson("/api/attendance/session/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input || {}),
+    });
+  },
+
+  async endAttendanceSession(): Promise<{ ok: boolean }> {
+    if (FORCE_MOCK) return { ok: true };
+    return requestJson("/api/attendance/session/end", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+  },
+
+  attendanceExportCsvUrl(): string {
+    return `${API_BASE_URL}/api/attendance/export.csv`;
   },
 };
