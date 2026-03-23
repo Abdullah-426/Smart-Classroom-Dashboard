@@ -62,7 +62,9 @@ bool occupied = false;
 unsigned long lastMotionMs = 0;
 unsigned long lastPublishMs = 0;
 
-float tempThreshold = 28.0;
+float tempThreshold = 30.0;
+const float FAN_AUTO_THRESHOLD_C = 20.0f;
+const float AC_AUTO_START_THRESHOLD_C = 25.0f;
 
 // Telemetry responsiveness tuning.
 // Keep telemetry JSON structure unchanged; only adjust when we publish/print.
@@ -81,7 +83,7 @@ bool lastPublishedAutoMode = true;
 bool lastPublishedForceOff = false;
 bool lastPublishedAfterHoursAlert = false;
 float lastPublishedTempThreshold = 28.0f;
-bool lastPublishedAcPower = true;
+bool lastPublishedAcPower = false;
 bool lastPublishedAcModeAuto = true;
 bool lastPublishedAcCoolingActive = false;
 int lastPublishedManualFanCount = -1;
@@ -96,8 +98,9 @@ const unsigned long ATTENDANCE_LOCAL_SUPPRESS_MS = 5000;
 
 // AC simulation state
 bool acPower = true;     // main AC power
-bool acModeAuto = true; // true => thermostat logic uses tempThreshold; false => manual fan request controls cooling
+bool acModeAuto = true; // true => thermostat logic uses tempThreshold; false => manual AC power controls cooling
 bool acCoolingActive = false;
+bool acPowerActive = false; // effective AC running state for indicator + telemetry
 
 // Manual per-grid controls (counts). Backward compatible with boolean `light`/`fan` commands.
 int manualLightCount = 0; // 0..LIGHT_TOTAL
@@ -165,11 +168,13 @@ void applyLogic(float tempC, bool motion) {
 
   int desiredLightCount = 0;
   int desiredFanCount = 0;
+  bool desiredAcPowerActive = false;
   bool desiredCoolingActive = false;
 
   if (forceOff) {
     desiredLightCount = 0;
     desiredFanCount = 0;
+    desiredAcPowerActive = false;
     desiredCoolingActive = false;
   } else {
     // Lights: preserved semantics from Phase B
@@ -181,22 +186,32 @@ void applyLogic(float tempC, bool motion) {
       desiredLightCount = manualLightCount;
     }
 
-    // AC cooling + fans
+    // FAN logic (independent from AC):
+    // - auto mode => fan follows a dedicated threshold
+    // - manual mode => fan follows manualFanCount
+    if (autoMode) {
+      desiredFanCount = (!isnan(tempC) && tempC >= FAN_AUTO_THRESHOLD_C) ? FAN_TOTAL : 0;
+    } else {
+      desiredFanCount = clampInt(manualFanCount, 0, FAN_TOTAL);
+    }
+
+    // AC logic (independent from FAN):
+    // - AC must be power-enabled
+    // - in auto mode: AC starts at 25C, cooling starts at tempThreshold (slider)
+    // - in manual mode: AC power directly controls cooling
     if (!acPower) {
-      desiredFanCount = 0;
+      desiredAcPowerActive = false;
       desiredCoolingActive = false;
     } else if (acModeAuto) {
-      // Preserved semantics from Phase B fan control:
-      // Cooling triggers when temperature exceeds tempThreshold.
-      desiredCoolingActive = (!isnan(tempC) && tempC > tempThreshold);
-      desiredFanCount = desiredCoolingActive ? FAN_TOTAL : 0;
+      desiredAcPowerActive = (!isnan(tempC) && tempC >= AC_AUTO_START_THRESHOLD_C);
+      desiredCoolingActive = (desiredAcPowerActive && !isnan(tempC) && tempC >= tempThreshold);
     } else {
-      // AC manual mode: cooling follows manualFanCount.
-      desiredCoolingActive = (manualFanCount > 0);
-      desiredFanCount = clampInt(manualFanCount, 0, FAN_TOTAL);
+      desiredAcPowerActive = true;
+      desiredCoolingActive = true;
     }
   }
 
+  acPowerActive = desiredAcPowerActive;
   acCoolingActive = desiredCoolingActive;
   lightOnCount = desiredLightCount;
   fanOnCount = desiredFanCount;
@@ -204,7 +219,7 @@ void applyLogic(float tempC, bool motion) {
   writeOutputMask(gridOutputMask);
 
   // Visual AC indicators (visual representation of control state)
-  digitalWrite(AC_POWER_LED_PIN, acPower ? HIGH : LOW);
+  digitalWrite(AC_POWER_LED_PIN, acPowerActive ? HIGH : LOW);
   digitalWrite(AC_COOLING_LED_PIN, acCoolingActive ? HIGH : LOW);
 
   if (afterHoursAlert && motion) {
@@ -374,11 +389,11 @@ void publishTelemetry(float tempC, bool motion) {
   doc["lightsMask"] = (uint16_t)(gridOutputMask & 0x03FF); // 10 bits
   doc["fansMask"] = (uint8_t)((gridOutputMask >> 10) & 0x3F); // 6 bits
 
-  doc["acPower"] = acPower;
+  doc["acPower"] = acPowerActive;
   doc["acMode"] = acModeAuto ? "auto" : "manual";
   doc["acSetpoint"] = tempThreshold;
   doc["acCoolingActive"] = acCoolingActive;
-  doc["acManualOverride"] = (!acModeAuto && manualFanCount > 0);
+  doc["acManualOverride"] = (!acModeAuto && acPowerActive);
 
   // Attendance event (embedded in telemetry)
   if (attendanceEventPending && pendingAttendanceTagId.length() > 0) {
@@ -442,7 +457,7 @@ bool shouldPublishTelemetryNow(float tempC, bool motion, unsigned long nowMs) {
   if (forceOff != lastPublishedForceOff) return true;
   if (afterHoursAlert != lastPublishedAfterHoursAlert) return true;
   if (fabs(tempThreshold - lastPublishedTempThreshold) >= 0.05f) return true;
-  if (acPower != lastPublishedAcPower) return true;
+  if (acPowerActive != lastPublishedAcPower) return true;
   if (acModeAuto != lastPublishedAcModeAuto) return true;
   if (acCoolingActive != lastPublishedAcCoolingActive) return true;
   if (manualFanCount != lastPublishedManualFanCount) return true;
@@ -471,7 +486,8 @@ void setup() {
   digitalWrite(SR_STCP_PIN, LOW);
 
   // Default AC indicators and grid output states
-  digitalWrite(AC_POWER_LED_PIN, acPower ? HIGH : LOW);
+  acPowerActive = false;
+  digitalWrite(AC_POWER_LED_PIN, LOW);
   digitalWrite(AC_COOLING_LED_PIN, LOW);
 
   lightOnCount = 0;
@@ -523,7 +539,7 @@ void loop() {
     lastPublishedForceOff = forceOff;
     lastPublishedAfterHoursAlert = afterHoursAlert;
     lastPublishedTempThreshold = tempThreshold;
-    lastPublishedAcPower = acPower;
+    lastPublishedAcPower = acPowerActive;
     lastPublishedAcModeAuto = acModeAuto;
     lastPublishedAcCoolingActive = acCoolingActive;
     lastPublishedManualFanCount = manualFanCount;

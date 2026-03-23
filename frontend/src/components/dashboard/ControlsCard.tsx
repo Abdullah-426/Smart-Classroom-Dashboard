@@ -126,7 +126,6 @@ export function ControlsCard({ onSendCommand, onToggleSchedule, scheduleState, t
               sendManual({
                 mode: "manual",
                 fan: true,
-                acPower: true,
                 forceOff: false,
                 afterHoursAlert: false,
               })
@@ -195,7 +194,6 @@ export function ControlsCard({ onSendCommand, onToggleSchedule, scheduleState, t
                         mode: "manual",
                         light: Math.round(lightLevel),
                         fan: Math.round(fanLevel),
-                        acPower: fanLevel > 0 ? true : undefined,
                         forceOff: false,
                         afterHoursAlert: false,
                       });
