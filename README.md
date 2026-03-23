@@ -16,13 +16,13 @@ This frontend is the primary UI for:
 ## Screenshots
 
 ### Home Dashboard
-![Home Dashboard](./public/readme/home-dashboard-full.png)
+![Home Dashboard](./frontend/public/readme/home-dashboard-full.png)
 
 ### Temperature Trend + Filters
-![Temperature Trend Filters](./public/readme/home-temperature-trend-filters.png)
+![Temperature Trend Filters](./frontend/public/readme/home-temperature-trend-filters.png)
 
 ### Attendance Tracker
-![Attendance Tracker](./public/readme/attendance-tracker-page.png)
+![Attendance Tracker](./frontend/public/readme/attendance-tracker-page.png)
 
 ---
 
