@@ -363,6 +363,8 @@ What works end-to-end (when stack is running per RUN-STEPS)
 Current dashboard state
   Production-style UI complete; trend ranges including 5m/10m; gauge shows NA when
   line not live; line breaks on null segments while time advances.
+  Estimated energy saved persists in browser `localStorage` while the pipeline is
+  live (continues across disconnects/reloads).
 
 Current backend state
   `all_flows_edit.json` is the source of truth for import; must be deployed in
@@ -382,8 +384,8 @@ Known issues / rough edges
   • Gauge may show NA slightly before header turns red (by design: 6s vs 7s).
   • Full `data/` directory is gitignored — clones start empty until ingest.
   • **Clear storage** (bridge `/api/storage/clear`) removes telemetry JSONL, occupancy
-    sessions, and bridge state; it does **not** reset `downtime.json` (total downtime
-    is intentional separate persistence).
+    sessions, and bridge state; it also resets the total pipeline downtime timer
+    (`downtime.json`).
 
 Readiness for demo
   High for classroom IoT narrative (live telemetry, control, schedule, ML card,
