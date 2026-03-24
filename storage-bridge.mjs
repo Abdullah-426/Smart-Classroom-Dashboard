@@ -51,6 +51,10 @@ function loadState() {
     lastOccupied: Boolean(s.lastOccupied),
     openStart: typeof s.openStart === "number" ? s.openStart : null,
     nextSessionNumber: Number.isFinite(s.nextSessionNumber) ? s.nextSessionNumber : 1,
+    cumulativeEnergySavedWh:
+      typeof s.cumulativeEnergySavedWh === "number" && Number.isFinite(s.cumulativeEnergySavedWh)
+        ? Math.max(0, s.cumulativeEnergySavedWh)
+        : 0,
   };
 }
 
@@ -240,6 +244,11 @@ function processIngest(body) {
 
   let state = loadState();
   const sessions = loadSessions();
+  const inboundEnergyWh = Number(body.estimatedEnergySavedWh);
+  if (Number.isFinite(inboundEnergyWh) && inboundEnergyWh >= 0) {
+    // Keep monotonic cumulative value across transient flow/context resets.
+    state.cumulativeEnergySavedWh = Math.max(state.cumulativeEnergySavedWh || 0, inboundEnergyWh);
+  }
 
   if (occupied && !state.lastOccupied) {
     state.openStart = receivedAt;
@@ -414,6 +423,8 @@ function storageInfo() {
     }
   }
   const dState = loadDowntimeState();
+  const state = loadState();
+  const energyWh = Number((state.cumulativeEnergySavedWh || 0).toFixed(2));
   const now = Date.now();
   return {
     ok: true,
@@ -425,6 +436,8 @@ function storageInfo() {
     newestSampleIso: newest,
     bridgeIngestSinceStart: bridgeIngestCount,
     bridgeLastIngestIso: bridgeLastIngestMs ? new Date(bridgeLastIngestMs).toISOString() : null,
+    estimatedEnergySavedWh: energyWh,
+    estimatedEnergySaved: `${energyWh.toFixed(2)} Wh`,
     downtimeTotalMs: dState.totalDowntimeMs,
     downtimeDisplayMs: downtimeDisplayMsAt(now),
     downtimeOffSinceMs: dState.offSinceMs,
@@ -448,7 +461,7 @@ function clearStorage() {
       /* ignore */
     }
   }
-  saveState({ lastOccupied: false, openStart: null, nextSessionNumber: 1 });
+  saveState({ lastOccupied: false, openStart: null, nextSessionNumber: 1, cumulativeEnergySavedWh: 0 });
   saveSessions([]);
   bridgeIngestCount = 0;
   bridgeLastIngestMs = null;
@@ -868,6 +881,20 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/api/storage/info") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(storageInfo()));
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/storage/energy-saved") {
+      const state = loadState();
+      const wh = Number((state.cumulativeEnergySavedWh || 0).toFixed(2));
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          ok: true,
+          estimatedEnergySavedWh: wh,
+          estimatedEnergySaved: `${wh.toFixed(2)} Wh`,
+        }),
+      );
       return;
     }
 

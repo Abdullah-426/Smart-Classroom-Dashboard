@@ -284,8 +284,16 @@ export function useDashboardData() {
 
       const baselineWh = readEnergyBaselineWh();
       let energyWh = readStoredEnergyWh();
-      const serverEnergyWh = parseEnergySavedWh(safeSummary.estimatedEnergySaved);
-      const serverEnergySinceBaselineWh = Math.max(0, serverEnergyWh - baselineWh);
+      const summaryEnergyWh = parseEnergySavedWh(safeSummary.estimatedEnergySaved);
+      const storageEnergyWh =
+        typeof sInfo.estimatedEnergySavedWh === "number" && Number.isFinite(sInfo.estimatedEnergySavedWh)
+          ? Math.max(0, sInfo.estimatedEnergySavedWh)
+          : 0;
+      const hasStorageEnergy = sInfo.ok === true;
+      const serverEnergyWh = hasStorageEnergy ? storageEnergyWh : summaryEnergyWh;
+      const serverEnergySinceBaselineWh = hasStorageEnergy
+        ? serverEnergyWh
+        : Math.max(0, serverEnergyWh - baselineWh);
       if (stable) {
         // Keep monotonic local display while still tracking server accumulation from the reset baseline.
         energyWh = Math.max(energyWh, serverEnergySinceBaselineWh);
@@ -359,13 +367,8 @@ export function useDashboardData() {
   }, [trendRangeId]);
 
   const clearPersistedStorage = useCallback(async () => {
-    // Reset baseline against server cumulative counter so display restarts from 0 Wh.
-    const currentlyDisplayedWh =
-      bundleRef.current != null
-        ? parseEnergySavedWh(bundleRef.current.summary.estimatedEnergySaved)
-        : readStoredEnergyWh();
-    const baselineWh = readEnergyBaselineWh();
-    writeEnergyBaselineWh(baselineWh + Math.max(0, currentlyDisplayedWh));
+    // Storage bridge clear now resets persisted cumulative energy, so baseline must also reset.
+    writeEnergyBaselineWh(0);
 
     // Also clear locally persisted estimated energy saved.
     writeStoredEnergyWh(0);

@@ -28,6 +28,8 @@ export interface StorageInfoResponse {
   downtimeDisplayMs?: number;
   downtimeTotalMs?: number;
   downtimeOffSinceMs?: number | null;
+  estimatedEnergySavedWh?: number;
+  estimatedEnergySaved?: string;
   error?: string;
 }
 
