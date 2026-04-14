@@ -53,8 +53,8 @@ export function TemperatureTrendCard({ trend, rangeId, onRangeChange, className 
           </button>
         ))}
       </div>
-      <div className="h-64">
-        <ResponsiveContainer width="100%" height="100%">
+      <div className="h-64 w-full min-h-64">
+        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={220}>
           <AreaChart data={data}>
             <defs>
               <linearGradient id="tempFill" x1="0" y1="0" x2="0" y2="1">

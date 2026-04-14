@@ -15,14 +15,26 @@ This frontend is the primary UI for:
 
 ## Screenshots
 
-### Home Dashboard
-![Home Dashboard](./frontend/public/readme/home-dashboard-full.png)
+### Wokwi Simulation Running
+![Wokwi Simulation Running](./docs/screenshots/wokwi-simulation-running.png)
 
-### Temperature Trend + Filters
-![Temperature Trend Filters](./frontend/public/readme/home-temperature-trend-filters.png)
+### Home Dashboard - Status / Navigation / Pipeline
+![Home Dashboard Main](./docs/screenshots/home-dashboard-main.png)
 
-### Attendance Tracker
-![Attendance Tracker](./frontend/public/readme/attendance-tracker-page.png)
+### Home Dashboard - Controls / Temperature / Analytics
+![Home Dashboard Controls and Analytics](./docs/screenshots/home-dashboard-controls-analytics.png)
+
+### Attendance Session Controls
+![Attendance Session Controls](./docs/screenshots/attendance-session-controls.png)
+
+### Subject Management Overlay
+![Subject Editor Overlay](./docs/screenshots/attendance-subject-editor-overlay.png)
+
+### Attendance Tracker Table
+![Attendance Tracker Table](./docs/screenshots/attendance-tracker-final.png)
+
+### Recent Scans + Tracker Area
+![Recent Scans and Tracker](./docs/screenshots/attendance-recent-and-tracker.png)
 
 ---
 
@@ -32,12 +44,14 @@ End-to-end path:
 
 `Wokwi -> MQTT -> Node-RED -> (HTTP APIs) -> React frontend`
 
+Live Wokwi project used for verification: [Wireless Project Abdullah (Wokwi)](https://wokwi.com/projects/459287076267797505)
+
 Persistence path:
 
 `Node-RED -> storage bridge (:4050) -> JSON/JSONL runtime data`
 
 Frontend runtime model:
-- polls Node-RED and storage APIs every `1000ms`
+- dashboard polling every `1000ms`; attendance polling every `2500ms`
 - applies pipeline freshness debouncing to avoid flicker
 - renders disconnects in chart as line gaps (`null` segments)
 - supports fallback mock behavior if API calls fail
@@ -73,12 +87,15 @@ Frontend runtime model:
   - clear storage/reset integrations
 
 ### Attendance route
-- session start/end/reset
+- subject selection + session start/end
+- subject editor overlay (add/update/remove subject code + name)
 - live attendance KPIs (present/late/absent/%)
 - invalid and duplicate counters
 - recent scans feed
 - searchable/filterable student table
-- CSV export
+- attendance tracker (subject-wise): total/present/late/late%/absent/attendance%
+- attendance tracker reset icon (resets attendance data, keeps subject definitions)
+- subject-wise CSV export from tracker dropdown
 
 ---
 
@@ -114,6 +131,10 @@ This app uses hash-based routing in `App.tsx`:
 - `POST /api/storage/downtime/reset`
 - `GET /api/storage/occupancy-sessions`
 - `PATCH /api/storage/occupancy-sessions/flag`
+- `POST /api/storage/attendance/subjects`
+- `PUT /api/storage/attendance/subjects`
+- `DELETE /api/storage/attendance/subjects?code=...`
+- `GET /api/storage/attendance/export.csv?subjectCode=...`
 
 ---
 

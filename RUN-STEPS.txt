@@ -59,7 +59,7 @@ EVERY SESSION — START IN THIS ORDER (after restart)
      the bridge is up.
 
   4. Start Node-RED from project root:
-       npm run nodered:env
+      npm run nodered:env:restart
      Wait until the editor loads at http://127.0.0.1:1880 (or your mapped port).
      If flows were already deployed, click Deploy once if you changed anything.
 
@@ -108,11 +108,11 @@ ATTENDANCE PHASE 4 (RFID) QUICK START
        • Invalid and Duplicate counters
        • Recent scans feed with status (present/late/duplicate/invalid)
        • Search/filter student table
-       • Export CSV button
+      • Attendance Tracker section (subject dropdown + Export CSV + Late % column)
 
   5. Session controls:
        • End Session -> POST /api/attendance/session/end
-       • Reset       -> POST /api/attendance/reset
+      • Reset attendance tracker (top-right icon in Attendance Tracker card) -> POST /api/attendance/reset
 
   6. Useful endpoints for debug:
        • GET  /api/attendance/live

@@ -470,6 +470,8 @@ Important persistence files:
 - data/attendance-scan-log.jsonl
 - data/attendance-session.json
 - data/attendance-bridge-state.json
+- data/attendance-subjects.json
+- data/attendance-classes.json
 
 Attendance classification logic (in storage bridge):
 - invalid if session inactive or unknown card
@@ -508,7 +510,7 @@ Route handling:
 
 Polling interval:
 - DASHBOARD_POLL_MS = 1000 ms (useDashboardData)
-- Attendance polling also runs at 1000 ms cadence
+- Attendance polling runs at 2500 ms cadence (useAttendanceData)
 
 Dashboard polling calls:
 - telemetry
@@ -558,7 +560,7 @@ This closed loop provides near-real-time command confirmation.
 Session control:
 - Start Session -> POST /api/attendance/session/start
 - End Session -> POST /api/attendance/session/end
-- Reset -> POST /api/attendance/reset
+- Reset (Attendance Tracker top-right icon) -> POST /api/attendance/reset
 
 Data flow for a scan:
 1) card scanned on Wokwi MFRC522
@@ -566,12 +568,11 @@ Data flow for a scan:
 3) Node-RED forwards to storage bridge /ingest
 4) storage bridge classifies scan (present/late/duplicate/invalid)
 5) frontend polls /api/attendance/live
-6) KPIs, recent scans, and student table update
+6) KPIs, recent scans, student table, and subject-wise Attendance Tracker update
 
 Export flow:
-- frontend uses /api/attendance/export.csv URL
-- Node-RED proxies to storage bridge CSV endpoint
-- browser downloads CSV report
+- tracker export uses /api/storage/attendance/export.csv?subjectCode=... (subject-wise CSV)
+- browser downloads subject-wise tracker CSV (total/present/late/latePercent/absent/attendancePercent)
 
 
 -----------------------------------------------------------------------------
