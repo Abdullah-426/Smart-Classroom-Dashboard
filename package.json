@@ -3,11 +3,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "storage": "cross-env STORAGE_BRIDGE_HOST=0.0.0.0 node ./storage-bridge.mjs",
+    "storage": "cross-env STORAGE_BRIDGE_HOST=0.0.0.0 node --watch ./storage-bridge.mjs",
     "storage:loopback": "node ./storage-bridge.mjs",
-    "dev:all": "concurrently -n storage,vite -c cyan,magenta \"cross-env STORAGE_BRIDGE_HOST=0.0.0.0 node ./storage-bridge.mjs\" \"npm run dev --prefix ./frontend\"",
+    "dev:all": "concurrently -n storage,vite -c cyan,magenta \"cross-env STORAGE_BRIDGE_HOST=0.0.0.0 node --watch ./storage-bridge.mjs\" \"npm run dev --prefix ./frontend\"",
     "nodered": "node-red -u ./node-red-data --settings ./node-red-data/settings.cjs",
-    "nodered:env": "dotenv -e .env -- node-red -u ./node-red-data --settings ./node-red-data/settings.cjs"
+    "nodered:env": "dotenv -e .env -- node-red -u ./node-red-data --settings ./node-red-data/settings.cjs",
+    "nodered:stop": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$line = (netstat -ano | Select-String 'LISTENING' | Select-String ':1880' | Select-Object -First 1); if ($line) { $procId = (($line.ToString() -split '\\s+')[-1]); try { $p = Get-CimInstance Win32_Process -Filter \\\"ProcessId = $procId\\\"; if ($p -and $p.CommandLine -match 'node-red') { Stop-Process -Id $procId -Force; Write-Output \\\"Stopped Node-RED PID $procId\\\" } else { Write-Output \\\"Port 1880 used by non Node-RED PID $procId\\\" } } catch { Write-Output \\\"Could not stop PID $procId\\\" } } else { Write-Output 'No listener on 1880' }\"",
+    "nodered:env:restart": "npm run nodered:stop && npm run nodered:env"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

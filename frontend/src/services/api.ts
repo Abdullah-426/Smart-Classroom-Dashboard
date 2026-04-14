@@ -317,7 +317,12 @@ export const dashboardApi = {
           duplicateCount: 0,
           attendancePercent: 0,
         },
+        subjects: [{ code: "IOT-SC", name: "IoT Systems Lab" }],
+        selectedSubjectCode: "IOT-SC",
         students: [],
+        allSubjectsStudents: [],
+        subjectStudents: [],
+        subjectStudentsByCode: {},
         recentScans: [],
       };
     }
@@ -327,6 +332,7 @@ export const dashboardApi = {
   async startAttendanceSession(input?: {
     className?: string;
     courseName?: string;
+    subjectCode?: string;
     section?: string;
     lateAfterMinutes?: number;
     duplicateSuppressMs?: number;
@@ -349,7 +355,39 @@ export const dashboardApi = {
     });
   },
 
-  attendanceExportCsvUrl(): string {
+  async addAttendanceSubject(input: { name: string; code: string }): Promise<{ ok: boolean }> {
+    if (FORCE_MOCK) return { ok: true };
+    return requestJson("/api/storage/attendance/subjects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+  },
+
+  async updateAttendanceSubject(input: {
+    currentCode: string;
+    name: string;
+    code: string;
+  }): Promise<{ ok: boolean }> {
+    if (FORCE_MOCK) return { ok: true };
+    return requestJson("/api/storage/attendance/subjects", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+  },
+
+  async deleteAttendanceSubject(code: string): Promise<{ ok: boolean }> {
+    if (FORCE_MOCK) return { ok: true };
+    return requestJson(`/api/storage/attendance/subjects?code=${encodeURIComponent(code)}`, {
+      method: "DELETE",
+    });
+  },
+
+  attendanceExportCsvUrl(subjectCode?: string): string {
+    if (subjectCode && subjectCode.trim()) {
+      return `${API_BASE_URL}/api/storage/attendance/export.csv?subjectCode=${encodeURIComponent(subjectCode.trim())}`;
+    }
     return `${API_BASE_URL}/api/attendance/export.csv`;
   },
 };

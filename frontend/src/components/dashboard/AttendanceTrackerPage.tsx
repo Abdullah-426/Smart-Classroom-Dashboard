@@ -1,9 +1,10 @@
 import { RefreshCcw } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { AttendanceLiveScanRow, AttendanceStudentRow } from "../../types/dashboard";
 import { Card } from "../ui/Card";
 import { useAttendanceData } from "../../hooks/useAttendanceData";
 import { dashboardApi } from "../../services/api";
+import { SubjectEditorOverlay } from "./SubjectEditorOverlay";
 
 function StatusPill({ tone, children }: { tone: "emerald" | "amber" | "rose" | "slate"; children: string }) {
   const cls =
@@ -85,10 +86,15 @@ function ScanRow({ row }: { row: AttendanceLiveScanRow }) {
 }
 
 export function AttendanceTrackerPage() {
-  const { data, loading, error, reset, startSession, endSession } = useAttendanceData();
-  const [resetBusy, setResetBusy] = useState(false);
+  const { data, loading, error, reset, startSession, endSession, addSubject, updateSubject, deleteSubject } = useAttendanceData();
   const [startBusy, setStartBusy] = useState(false);
   const [endBusy, setEndBusy] = useState(false);
+  const [addSubjectBusy, setAddSubjectBusy] = useState(false);
+  const [trackerResetBusy, setTrackerResetBusy] = useState(false);
+  const [showSubjectEditor, setShowSubjectEditor] = useState(false);
+  const [selectedSubjectCode, setSelectedSubjectCode] = useState<string>("");
+  const [trackerSubjectCode, setTrackerSubjectCode] = useState<string>("");
+  const [subjectError, setSubjectError] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<"all" | "present" | "late" | "absent">("all");
 
@@ -108,13 +114,13 @@ export function AttendanceTrackerPage() {
       .sort((a, b) => studentSortKey(a) - studentSortKey(b));
   }, [data, filter, q]);
 
-  async function handleReset() {
-    if (resetBusy) return;
-    setResetBusy(true);
+  async function handleTrackerReset() {
+    if (trackerResetBusy) return;
+    setTrackerResetBusy(true);
     try {
       await reset();
     } finally {
-      setResetBusy(false);
+      setTrackerResetBusy(false);
     }
   }
 
@@ -124,7 +130,8 @@ export function AttendanceTrackerPage() {
     try {
       await startSession({
         className: "Smart Classroom Demo",
-        courseName: "IoT Systems Lab",
+        courseName: effectiveSubjectName,
+        subjectCode: selectedSubjectCode || data?.selectedSubjectCode || undefined,
         section: "CSE-A",
         lateAfterMinutes: 10,
       });
@@ -143,11 +150,78 @@ export function AttendanceTrackerPage() {
     }
   }
 
+  async function handleAddSubject(input: { name: string; code: string }) {
+    const name = input.name.trim();
+    const code = input.code.trim();
+    if (!name || !code || addSubjectBusy) return;
+    setAddSubjectBusy(true);
+    setSubjectError(null);
+    try {
+      await addSubject({ name, code });
+      const nextCode = code.toUpperCase();
+      setSelectedSubjectCode(nextCode);
+    } catch (e) {
+      setSubjectError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAddSubjectBusy(false);
+    }
+  }
+
+  async function handleUpdateSubject(input: { currentCode: string; name: string; code: string }) {
+    const nextCode = input.code.trim().toUpperCase();
+    const nextName = input.name.trim();
+    if (!input.currentCode.trim() || !nextCode || !nextName || addSubjectBusy) return;
+    setAddSubjectBusy(true);
+    setSubjectError(null);
+    try {
+      await updateSubject({
+        currentCode: input.currentCode,
+        code: nextCode,
+        name: nextName,
+      });
+      if (selectedSubjectCode === input.currentCode) {
+        setSelectedSubjectCode(nextCode);
+      }
+    } catch (e) {
+      setSubjectError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAddSubjectBusy(false);
+    }
+  }
+
+  async function handleDeleteSubject(code: string) {
+    if (!code.trim() || addSubjectBusy) return;
+    setAddSubjectBusy(true);
+    setSubjectError(null);
+    try {
+      await deleteSubject(code);
+      if (selectedSubjectCode === code) {
+        setSelectedSubjectCode("");
+      }
+    } catch (e) {
+      setSubjectError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAddSubjectBusy(false);
+    }
+  }
+
   const session = data?.session;
   const stats = data?.stats;
+  const subjects = data?.subjects ?? [];
+  const effectiveSubjectCode = selectedSubjectCode || data?.selectedSubjectCode || subjects[0]?.code || "";
+  const effectiveSubjectName =
+    subjects.find((s) => s.code === effectiveSubjectCode)?.name || data?.courseName || "Subject";
+  const effectiveTrackerSubjectCode = trackerSubjectCode || subjects[0]?.code || "";
+  const trackerRows = data?.subjectStudentsByCode?.[effectiveTrackerSubjectCode] ?? [];
+
+  useEffect(() => {
+    if (!subjects.length) return;
+    if (!trackerSubjectCode) setTrackerSubjectCode(subjects[0].code);
+  }, [subjects, trackerSubjectCode]);
 
   return (
-    <section className="mb-5 grid grid-cols-1 gap-4 lg:grid-cols-3">
+    <>
+      <section className="mb-5 grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card title="Attendance Session" subtitle="RFID scans collected from Wokwi hardware" icon={<span className="text-sky-500">●</span>}>
           {loading ? (
             <p className="text-sm text-slate-600 dark:text-slate-300">Loading attendance…</p>
@@ -175,9 +249,32 @@ export function AttendanceTrackerPage() {
                   <p className="font-bold text-sky-500">{stats?.attendancePercent ?? 0}%</p>
                 </div>
               </div>
+              <div className="space-y-2 rounded-2xl border border-slate-200/80 bg-white/40 p-3 dark:border-slate-800/60 dark:bg-slate-900/30">
+                <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">Select Subject</p>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={effectiveSubjectCode}
+                    onChange={(e) => setSelectedSubjectCode(e.target.value)}
+                    className="min-w-[150px] flex-1 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900"
+                  >
+                    {subjects.map((subject) => (
+                      <option key={subject.code} value={subject.code}>
+                        {subject.code} - {subject.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => setShowSubjectEditor(true)}
+                    className="rounded-xl border border-sky-400 px-3 py-2 text-xs font-semibold text-sky-500"
+                  >
+                    Edit
+                  </button>
+                </div>
+              </div>
               <div className="rounded-2xl border border-slate-200/80 bg-white/40 p-3 dark:border-slate-800/60 dark:bg-slate-900/30">
                 <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">
-                  {data.className} · {data.courseName}
+                  {data.className} · {effectiveSubjectName}
                 </p>
                 <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
                   Session:{" "}
@@ -193,7 +290,7 @@ export function AttendanceTrackerPage() {
                   Present if last scan within <span className="font-semibold tabular-nums">{session?.absenceTimeoutMs ?? 0} ms</span>
                 </p>
               </div>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <button
                   type="button"
                   disabled={startBusy}
@@ -209,14 +306,6 @@ export function AttendanceTrackerPage() {
                   className="rounded-xl bg-amber-500 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-600 disabled:opacity-50"
                 >
                   {endBusy ? "Ending…" : "End Session"}
-                </button>
-                <button
-                  type="button"
-                  disabled={resetBusy}
-                  onClick={() => void handleReset()}
-                  className="rounded-xl bg-sky-500 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-600 disabled:opacity-50"
-                >
-                  {resetBusy ? "Resetting…" : "Reset"}
                 </button>
               </div>
             </div>
@@ -249,12 +338,6 @@ export function AttendanceTrackerPage() {
                   <option value="late">Late</option>
                   <option value="absent">Absent</option>
                 </select>
-                <a
-                  href={dashboardApi.attendanceExportCsvUrl()}
-                  className="rounded-xl border border-sky-400 px-3 py-2 text-xs font-semibold text-sky-500"
-                >
-                  Export CSV
-                </a>
               </div>
               {sorted.slice(0, 12).map((tag) => (
                 <StudentRow key={tag.studentId} tag={tag} />
@@ -301,6 +384,91 @@ export function AttendanceTrackerPage() {
           </div>
         </Card>
       </section>
+
+      <section className="mb-5">
+        <Card
+          title="Attendance Tracker"
+          subtitle="Subject-wise attendance for all students"
+          icon={
+            <button
+              type="button"
+              disabled={trackerResetBusy}
+              onClick={() => void handleTrackerReset()}
+              className="rounded-xl border border-slate-300/70 bg-slate-100/60 p-2 text-slate-700 hover:bg-slate-200 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800/70 dark:text-slate-100 dark:hover:bg-slate-700"
+              title="Reset attendance for all subjects"
+              aria-label="Reset attendance tracker"
+            >
+              <RefreshCcw size={14} className={trackerResetBusy ? "animate-spin" : ""} />
+            </button>
+          }
+        >
+          {loading ? (
+            <p className="text-sm text-slate-600 dark:text-slate-300">Updating…</p>
+          ) : !subjects.length ? (
+            <p className="text-sm text-slate-600 dark:text-slate-300">No subjects available yet.</p>
+          ) : trackerRows.length === 0 ? (
+            <p className="text-sm text-slate-600 dark:text-slate-300">No attendance records for selected subject yet.</p>
+          ) : (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 pb-1">
+                <select
+                  value={effectiveTrackerSubjectCode}
+                  onChange={(e) => setTrackerSubjectCode(e.target.value)}
+                  className="min-w-[190px] rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900"
+                >
+                  {subjects.map((subject) => (
+                    <option key={subject.code} value={subject.code}>
+                      {subject.code} - {subject.name}
+                    </option>
+                  ))}
+                </select>
+                <a
+                  href={dashboardApi.attendanceExportCsvUrl(effectiveTrackerSubjectCode)}
+                  className="rounded-xl border border-sky-400 px-3 py-2 text-xs font-semibold text-sky-500"
+                >
+                  Export CSV
+                </a>
+              </div>
+              <div className="grid grid-cols-2 gap-2 px-3 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 sm:grid-cols-7">
+                <p>Student</p>
+                <p>Total</p>
+                <p>Present</p>
+                <p>Late</p>
+                <p>Late %</p>
+                <p>Absent</p>
+                <p>Attendance %</p>
+              </div>
+              {trackerRows.map((student) => (
+                <div
+                  key={student.studentId}
+                  className="grid grid-cols-2 gap-2 rounded-2xl border border-slate-200/80 bg-white/40 px-3 py-2 text-[11px] dark:border-slate-800/60 dark:bg-slate-900/30 sm:grid-cols-7"
+                >
+                  <p className="font-semibold text-slate-800 dark:text-slate-100">
+                    {student.studentId} - {student.name}
+                  </p>
+                  <p>{student.totalSessions}</p>
+                  <p>{student.presentSessions}</p>
+                  <p>{student.lateSessions}</p>
+                  <p>{student.latePercent}%</p>
+                  <p>{student.absentSessions}</p>
+                  <p className="font-semibold text-sky-500">{student.attendancePercent}%</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      </section>
+      <SubjectEditorOverlay
+        open={showSubjectEditor}
+        onClose={() => setShowSubjectEditor(false)}
+        subjects={subjects}
+        busy={addSubjectBusy}
+        error={subjectError}
+        onAdd={handleAddSubject}
+        onUpdate={handleUpdateSubject}
+        onDelete={handleDeleteSubject}
+      />
+    </>
   );
 }
 

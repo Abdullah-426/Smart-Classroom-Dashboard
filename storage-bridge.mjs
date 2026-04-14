@@ -21,6 +21,8 @@ const ATTENDANCE_EVENTS_FILE = path.join(DATA_DIR, "attendance-events.jsonl");
 const ATTENDANCE_STATE_FILE = path.join(DATA_DIR, "attendance-bridge-state.json");
 const ATTENDANCE_SESSION_FILE = path.join(DATA_DIR, "attendance-session.json");
 const ATTENDANCE_SCAN_LOG_FILE = path.join(DATA_DIR, "attendance-scan-log.jsonl");
+const ATTENDANCE_SUBJECTS_FILE = path.join(DATA_DIR, "attendance-subjects.json");
+const ATTENDANCE_CLASSES_FILE = path.join(DATA_DIR, "attendance-classes.json");
 
 /** Since this process started (helps diagnose “bridge reachable” but Node-RED never hits /ingest). */
 let bridgeIngestCount = 0;
@@ -550,6 +552,129 @@ const DEFAULT_ATTENDANCE_ROSTER = [
   { studentId: "SC-006", name: "Vikram Nair", tagId: "C0:FF:EE:99", section: "CSE-A" }, // Key Fob
 ];
 
+const DEFAULT_ATTENDANCE_SUBJECTS = [{ code: "IOT-SC", name: "IoT Systems Lab" }];
+
+function normalizeSubjectCode(raw) {
+  return String(raw || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function normalizeSubject(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const code = normalizeSubjectCode(raw.code);
+  const name = typeof raw.name === "string" ? raw.name.trim() : "";
+  if (!code || !name) return null;
+  return { code, name };
+}
+
+function loadAttendanceSubjects() {
+  const arr = readJsonSafe(ATTENDANCE_SUBJECTS_FILE, DEFAULT_ATTENDANCE_SUBJECTS);
+  if (!Array.isArray(arr)) return [...DEFAULT_ATTENDANCE_SUBJECTS];
+  const normalized = arr.map((s) => normalizeSubject(s)).filter(Boolean);
+  if (normalized.length === 0) return [...DEFAULT_ATTENDANCE_SUBJECTS];
+  const unique = [];
+  const seen = new Set();
+  for (const s of normalized) {
+    if (seen.has(s.code)) continue;
+    seen.add(s.code);
+    unique.push(s);
+  }
+  return unique;
+}
+
+function saveAttendanceSubjects(subjects) {
+  writeJsonAtomic(ATTENDANCE_SUBJECTS_FILE, subjects);
+}
+
+function upsertAttendanceSubject(rawSubject) {
+  const subject = normalizeSubject(rawSubject);
+  if (!subject) return { ok: false, error: "subject_code_and_name_required" };
+  const subjects = loadAttendanceSubjects();
+  const idx = subjects.findIndex((s) => s.code === subject.code);
+  if (idx >= 0) {
+    const next = subjects.slice();
+    next[idx] = subject;
+    saveAttendanceSubjects(next);
+    return { ok: true, subject, created: false, subjects: next };
+  }
+  const next = [...subjects, subject];
+  saveAttendanceSubjects(next);
+  return { ok: true, subject, created: true, subjects: next };
+}
+
+function loadAttendanceClasses() {
+  const arr = readJsonSafe(ATTENDANCE_CLASSES_FILE, []);
+  if (!Array.isArray(arr)) return [];
+  return arr
+    .map((r) => {
+      if (!r || typeof r !== "object") return null;
+      const sessionId = typeof r.sessionId === "string" ? r.sessionId : null;
+      const subjectCode = normalizeSubjectCode(r.subjectCode);
+      const subjectName = typeof r.subjectName === "string" ? r.subjectName : "";
+      const startedAtMs = typeof r.startedAtMs === "number" ? r.startedAtMs : null;
+      const endedAtMs = typeof r.endedAtMs === "number" ? r.endedAtMs : null;
+      if (!sessionId || !subjectCode || startedAtMs == null) return null;
+      return { sessionId, subjectCode, subjectName, startedAtMs, endedAtMs };
+    })
+    .filter(Boolean);
+}
+
+function saveAttendanceClasses(rows) {
+  writeJsonAtomic(ATTENDANCE_CLASSES_FILE, rows);
+}
+
+function updateAttendanceSubject(rawUpdate) {
+  if (!rawUpdate || typeof rawUpdate !== "object") {
+    return { ok: false, error: "invalid_payload" };
+  }
+  const currentCode = normalizeSubjectCode(rawUpdate.currentCode);
+  const nextSubject = normalizeSubject(rawUpdate);
+  if (!currentCode || !nextSubject) {
+    return { ok: false, error: "current_code_and_next_subject_required" };
+  }
+  const subjects = loadAttendanceSubjects();
+  const idx = subjects.findIndex((s) => s.code === currentCode);
+  if (idx < 0) return { ok: false, error: "subject_not_found" };
+  const clash = subjects.find((s, i) => i !== idx && s.code === nextSubject.code);
+  if (clash) return { ok: false, error: "subject_code_already_exists" };
+  const next = subjects.slice();
+  next[idx] = nextSubject;
+  saveAttendanceSubjects(next);
+  const session = loadAttendanceSession();
+  if (session.subjectCode === currentCode) {
+    saveAttendanceSession({
+      ...session,
+      subjectCode: nextSubject.code,
+      courseName: nextSubject.name,
+    });
+  }
+  return { ok: true, subject: nextSubject, subjects: next };
+}
+
+function deleteAttendanceSubject(rawCode) {
+  const code = normalizeSubjectCode(rawCode);
+  if (!code) return { ok: false, error: "subject_code_required" };
+  const subjects = loadAttendanceSubjects();
+  const idx = subjects.findIndex((s) => s.code === code);
+  if (idx < 0) return { ok: false, error: "subject_not_found" };
+  if (subjects.length <= 1) return { ok: false, error: "cannot_delete_last_subject" };
+  const next = subjects.filter((s) => s.code !== code);
+  saveAttendanceSubjects(next);
+  const session = loadAttendanceSession();
+  if (session.subjectCode === code) {
+    const fallback = next[0];
+    saveAttendanceSession({
+      ...session,
+      subjectCode: fallback.code,
+      courseName: fallback.name,
+    });
+  }
+  return { ok: true, deletedCode: code, subjects: next };
+}
+
 function normalizedRoster() {
   return DEFAULT_ATTENDANCE_ROSTER.map((s) => ({
     ...s,
@@ -559,11 +684,17 @@ function normalizedRoster() {
 
 function loadAttendanceSession() {
   const s = readJsonSafe(ATTENDANCE_SESSION_FILE, {});
+  const subjects = loadAttendanceSubjects();
+  const defaultSubject = subjects[0] || DEFAULT_ATTENDANCE_SUBJECTS[0];
+  const subjectCode = normalizeSubjectCode(s.subjectCode) || defaultSubject.code;
+  const subjectByCode = new Map(subjects.map((x) => [x.code, x]));
+  const selected = subjectByCode.get(subjectCode) || defaultSubject;
   return {
     active: Boolean(s.active),
     sessionId: typeof s.sessionId === "string" ? s.sessionId : null,
     className: typeof s.className === "string" ? s.className : "Smart Classroom Demo",
-    courseName: typeof s.courseName === "string" ? s.courseName : "IoT Systems Lab",
+    courseName: typeof s.courseName === "string" ? s.courseName : selected.name,
+    subjectCode: selected.code,
     section: typeof s.section === "string" ? s.section : "CSE-A",
     startedAtMs: typeof s.startedAtMs === "number" ? s.startedAtMs : null,
     endedAtMs: typeof s.endedAtMs === "number" ? s.endedAtMs : null,
@@ -581,6 +712,10 @@ function saveAttendanceSession(s) {
 
 function startAttendanceSession(body = {}) {
   const now = Date.now();
+  const subjects = loadAttendanceSubjects();
+  const defaultSubject = subjects[0] || DEFAULT_ATTENDANCE_SUBJECTS[0];
+  const requestedCode = normalizeSubjectCode(body.subjectCode);
+  const selectedSubject = subjects.find((s) => s.code === requestedCode) || defaultSubject;
   const duplicateSuppressMs = Number.isFinite(body.duplicateSuppressMs)
     ? Math.max(500, Number(body.duplicateSuppressMs))
     : 5000;
@@ -600,7 +735,8 @@ function startAttendanceSession(body = {}) {
     courseName:
       typeof body.courseName === "string" && body.courseName.trim()
         ? body.courseName.trim()
-        : "IoT Systems Lab",
+        : selectedSubject.name,
+    subjectCode: selectedSubject.code,
     section:
       typeof body.section === "string" && body.section.trim() ? body.section.trim() : "CSE-A",
     startedAtMs: now,
@@ -610,6 +746,15 @@ function startAttendanceSession(body = {}) {
     absenceTimeoutMs,
   };
   saveAttendanceSession(session);
+  const classes = loadAttendanceClasses();
+  classes.push({
+    sessionId: session.sessionId,
+    subjectCode: session.subjectCode,
+    subjectName: session.courseName,
+    startedAtMs: session.startedAtMs,
+    endedAtMs: null,
+  });
+  saveAttendanceClasses(classes);
   saveAttendanceBridgeState({
     lastScanAtByTag: {},
     lastAcceptedAtByStudentId: {},
@@ -620,19 +765,120 @@ function startAttendanceSession(body = {}) {
 function endAttendanceSession() {
   const s = loadAttendanceSession();
   if (!s.active) return { ok: true, session: s };
-  const next = { ...s, active: false, endedAtMs: Date.now() };
+  const endedAtMs = Date.now();
+  const next = { ...s, active: false, endedAtMs };
   saveAttendanceSession(next);
+  const classes = loadAttendanceClasses();
+  const idx = classes.findIndex((c) => c.sessionId === s.sessionId);
+  if (idx >= 0) {
+    const updated = classes.slice();
+    updated[idx] = { ...updated[idx], endedAtMs };
+    saveAttendanceClasses(updated);
+  }
   return { ok: true, session: next };
 }
 
 function clearAttendanceStorage() {
-  for (const f of [ATTENDANCE_EVENTS_FILE, ATTENDANCE_STATE_FILE, ATTENDANCE_SCAN_LOG_FILE]) {
+  for (const f of [ATTENDANCE_EVENTS_FILE, ATTENDANCE_STATE_FILE, ATTENDANCE_SCAN_LOG_FILE, ATTENDANCE_CLASSES_FILE]) {
     try {
       if (fs.existsSync(f)) fs.unlinkSync(f);
     } catch {
       /* ignore */
     }
   }
+}
+
+function attendanceAllSubjectsSummary(roster, allScans) {
+  const relevant = allScans
+    .filter((r) => r && r.studentId && typeof r.receivedAt === "number")
+    .filter((r) => r.status === "present" || r.status === "late")
+    .sort((a, b) => a.receivedAt - b.receivedAt);
+  const subjectSetByStudent = new Map();
+  const lateSetByStudent = new Map();
+  for (const row of relevant) {
+    const studentId = row.studentId;
+    const subjectCode = normalizeSubjectCode(row.subjectCode || row.sessionId || "UNKNOWN");
+    if (!subjectSetByStudent.has(studentId)) subjectSetByStudent.set(studentId, new Set());
+    if (!lateSetByStudent.has(studentId)) lateSetByStudent.set(studentId, new Set());
+    subjectSetByStudent.get(studentId).add(subjectCode);
+    if (row.status === "late") lateSetByStudent.get(studentId).add(subjectCode);
+  }
+  const allKnownSubjects = new Set(loadAttendanceSubjects().map((s) => s.code));
+  for (const row of relevant) {
+    const code = normalizeSubjectCode(row.subjectCode || "");
+    if (code) allKnownSubjects.add(code);
+  }
+  const totalSessions = Math.max(1, allKnownSubjects.size);
+  return roster.map((s) => {
+    const presentSet = subjectSetByStudent.get(s.studentId) || new Set();
+    const lateSet = lateSetByStudent.get(s.studentId) || new Set();
+    const attendedSessions = presentSet.size;
+    const lateSessions = lateSet.size;
+    const presentSessions = attendedSessions;
+    const absentSessions = Math.max(0, totalSessions - attendedSessions);
+    return {
+      studentId: s.studentId,
+      name: s.name,
+      section: s.section,
+      totalSessions,
+      presentSessions,
+      lateSessions,
+      latePercent: presentSessions > 0 ? Math.round((lateSessions / presentSessions) * 1000) / 10 : 0,
+      absentSessions,
+      attendancePercent: Math.round((attendedSessions / totalSessions) * 1000) / 10,
+    };
+  });
+}
+
+function attendanceBySubjectSummary(roster, allScans, subjectCode) {
+  const normalizedCode = normalizeSubjectCode(subjectCode);
+  const classes = loadAttendanceClasses()
+    .filter((c) => c.subjectCode === normalizedCode)
+    .filter((c) => c.endedAtMs != null);
+  const totalSessions = classes.length;
+  const classIds = new Set(classes.map((c) => c.sessionId));
+  const relevant = allScans
+    .filter((r) => r && r.studentId && typeof r.receivedAt === "number")
+    .filter((r) => classIds.has(r.sessionId))
+    .filter((r) => r.status === "present" || r.status === "late");
+  const byStudentSession = new Map();
+  for (const row of relevant) {
+    const key = `${row.studentId}|${row.sessionId}`;
+    if (!byStudentSession.has(key)) byStudentSession.set(key, { present: false, late: false });
+    const agg = byStudentSession.get(key);
+    if (row.status === "present") agg.present = true;
+    if (row.status === "late") agg.late = true;
+  }
+  return roster.map((s) => {
+    let presentSessions = 0;
+    let lateSessions = 0;
+    for (const cls of classes) {
+      const agg = byStudentSession.get(`${s.studentId}|${cls.sessionId}`);
+      if (!agg) continue;
+      if (agg.present || agg.late) presentSessions += 1;
+      if (agg.late) lateSessions += 1;
+    }
+    const absentSessions = Math.max(0, totalSessions - presentSessions);
+    return {
+      studentId: s.studentId,
+      name: s.name,
+      section: s.section,
+      totalSessions,
+      presentSessions,
+      lateSessions,
+      latePercent: presentSessions > 0 ? Math.round((lateSessions / presentSessions) * 1000) / 10 : 0,
+      absentSessions,
+      attendancePercent: totalSessions > 0 ? Math.round((presentSessions / totalSessions) * 1000) / 10 : 0,
+    };
+  });
+}
+
+function attendanceBySubjectMap(roster, allScans, subjects) {
+  const map = {};
+  for (const subject of subjects) {
+    map[subject.code] = attendanceBySubjectSummary(roster, allScans, subject.code);
+  }
+  return map;
 }
 
 function processAttendanceEvent(ev, receivedAtMs) {
@@ -680,6 +926,8 @@ function processAttendanceEvent(ev, receivedAtMs) {
     studentId: student?.studentId ?? null,
     studentName: student?.name ?? null,
     section: student?.section ?? null,
+    subjectCode: session.subjectCode || null,
+    subjectName: session.courseName || null,
   };
   appendAttendanceScanLogRow(scanRow);
   return scanRow;
@@ -690,6 +938,7 @@ function attendanceLiveNow() {
   const roster = normalizedRoster();
   const byStudentId = new Map(roster.map((s) => [s.studentId, s]));
   const session = loadAttendanceSession();
+  const subjects = loadAttendanceSubjects();
   const scans = parseAttendanceScanLog();
   const inSession = scans
     .filter((r) => {
@@ -755,6 +1004,7 @@ function attendanceLiveNow() {
       studentName: r.studentName,
     }));
 
+  const trackerCode = session.subjectCode || subjects[0]?.code || null;
   return {
     ok: true,
     className: session.className,
@@ -780,7 +1030,12 @@ function attendanceLiveNow() {
       attendancePercent:
         roster.length > 0 ? Math.round(((presentCount + lateCount) / roster.length) * 1000) / 10 : 0,
     },
+    subjects,
+    selectedSubjectCode: session.subjectCode || null,
     students,
+    allSubjectsStudents: attendanceAllSubjectsSummary(roster, scans),
+    subjectStudents: trackerCode ? attendanceBySubjectSummary(roster, scans, trackerCode) : [],
+    subjectStudentsByCode: attendanceBySubjectMap(roster, scans, subjects),
     recentScans,
   };
 }
@@ -837,7 +1092,7 @@ function scheduleWindowMsFromNow(nowMs, timeZone) {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || "/", `http://${HOST === "0.0.0.0" ? "127.0.0.1" : HOST}`);
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
   if (req.method === "OPTIONS") {
@@ -917,11 +1172,14 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "POST" && url.pathname === "/api/storage/attendance/reset") {
       clearAttendanceStorage();
+      const subjects = loadAttendanceSubjects();
+      const defaultSubject = subjects[0] || DEFAULT_ATTENDANCE_SUBJECTS[0];
       saveAttendanceSession({
         active: false,
         sessionId: null,
         className: "Smart Classroom Demo",
-        courseName: "IoT Systems Lab",
+        courseName: defaultSubject.name,
+        subjectCode: defaultSubject.code,
         section: "CSE-A",
         startedAtMs: null,
         endedAtMs: null,
@@ -931,6 +1189,37 @@ const server = http.createServer(async (req, res) => {
       });
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/storage/attendance/subjects") {
+      const subjects = loadAttendanceSubjects();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true, subjects }));
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/storage/attendance/subjects") {
+      const body = await readBody(req);
+      const out = upsertAttendanceSubject(body || {});
+      res.writeHead(out.ok ? 200 : 400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(out));
+      return;
+    }
+
+    if (req.method === "PUT" && url.pathname === "/api/storage/attendance/subjects") {
+      const body = await readBody(req);
+      const out = updateAttendanceSubject(body || {});
+      res.writeHead(out.ok ? 200 : out.error === "subject_not_found" ? 404 : 400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(out));
+      return;
+    }
+
+    if (req.method === "DELETE" && url.pathname === "/api/storage/attendance/subjects") {
+      const code = url.searchParams.get("code");
+      const out = deleteAttendanceSubject(code);
+      res.writeHead(out.ok ? 200 : out.error === "subject_not_found" ? 404 : 400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(out));
       return;
     }
 
@@ -964,26 +1253,77 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && url.pathname === "/api/storage/attendance/export.csv") {
-      const live = attendanceLiveNow();
+      const subjects = loadAttendanceSubjects();
+      const scans = parseAttendanceScanLog().sort((a, b) => a.receivedAt - b.receivedAt);
+      const roster = normalizedRoster();
+      const subjectsByCode = new Map(subjects.map((s) => [s.code, s.name]));
+      const requestedSubjectCode = normalizeSubjectCode(url.searchParams.get("subjectCode"));
+      if (requestedSubjectCode) {
+        const selected = subjects.find((s) => s.code === requestedSubjectCode);
+        const subjectRows = attendanceBySubjectSummary(roster, scans, requestedSubjectCode);
+        const rows = [
+          "studentId,name,section,total,present,late,latePercent,absent,attendancePercent",
+          ...subjectRows.map((s) =>
+            [
+              s.studentId,
+              `"${String(s.name).replace(/"/g, '""')}"`,
+              s.section,
+              String(s.totalSessions),
+              String(s.presentSessions),
+              String(s.lateSessions),
+              String(s.latePercent),
+              String(s.absentSessions),
+              String(s.attendancePercent),
+            ].join(","),
+          ),
+        ];
+        res.writeHead(200, {
+          "Content-Type": "text/csv; charset=utf-8",
+          "Content-Disposition": `attachment; filename="attendance-tracker-${requestedSubjectCode}.csv"`,
+          "X-Attendance-Subject-Code": requestedSubjectCode,
+          "X-Attendance-Subject-Name": selected?.name || "",
+        });
+        res.end(rows.join("\n"));
+        return;
+      }
       const rows = [
-        "studentId,name,section,tagId,state,firstSeenAtIso,lastSeenAtIso,scanCount,attendancePercent",
-        ...live.students.map((s) =>
+        "studentId,name,section,tagId,subjectCode,subjectName,status,receivedAtIso,reason,sessionId",
+        ...scans.map((r) => {
+          const student = roster.find((x) => x.studentId === r.studentId);
+          const subjectCode = normalizeSubjectCode(r.subjectCode);
+          const subjectName =
+            (typeof r.subjectName === "string" && r.subjectName.trim()) || subjectsByCode.get(subjectCode) || "";
+          return [
+            r.studentId || "",
+            `"${String(r.studentName || student?.name || "").replace(/"/g, '""')}"`,
+            student?.section || r.section || "",
+            student?.tagId || r.tagId || "",
+            subjectCode,
+            `"${String(subjectName).replace(/"/g, '""')}"`,
+            r.status || "",
+            typeof r.receivedAt === "number" ? new Date(r.receivedAt).toISOString() : "",
+            r.reason || "",
+            r.sessionId || "",
+          ].join(",");
+        }),
+        "",
+        "studentId,name,section,totalSessions,presentSessions,lateSessions,absentSessions,attendancePercent",
+        ...attendanceAllSubjectsSummary(roster, scans).map((s) =>
           [
             s.studentId,
             `"${String(s.name).replace(/"/g, '""')}"`,
             s.section,
-            s.tagId,
-            s.state,
-            s.firstSeenAtIso || "",
-            s.lastSeenAtIso || "",
-            String(s.scanCount),
+            String(s.totalSessions),
+            String(s.presentSessions),
+            String(s.lateSessions),
+            String(s.absentSessions),
             String(s.attendancePercent),
           ].join(","),
         ),
       ];
       res.writeHead(200, {
         "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": `attachment; filename="attendance-${live.session.sessionId || "session"}.csv"`,
+        "Content-Disposition": `attachment; filename="attendance-complete-${Date.now()}.csv"`,
       });
       res.end(rows.join("\n"));
       return;

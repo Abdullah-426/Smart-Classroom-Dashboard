@@ -53,6 +53,23 @@ export interface AttendanceStudentRow {
   attendancePercent: number;
 }
 
+export interface AttendanceSubject {
+  code: string;
+  name: string;
+}
+
+export interface AttendanceStudentOverallRow {
+  studentId: string;
+  name: string;
+  section: string;
+  totalSessions: number;
+  presentSessions: number;
+  lateSessions: number;
+  latePercent: number;
+  absentSessions: number;
+  attendancePercent: number;
+}
+
 export interface AttendanceLivePayload {
   ok: boolean;
   className: string;
@@ -77,7 +94,12 @@ export interface AttendanceLivePayload {
     duplicateCount: number;
     attendancePercent: number;
   };
+  subjects: AttendanceSubject[];
+  selectedSubjectCode: string | null;
   students: AttendanceStudentRow[];
+  allSubjectsStudents: AttendanceStudentOverallRow[];
+  subjectStudents: AttendanceStudentOverallRow[];
+  subjectStudentsByCode: Record<string, AttendanceStudentOverallRow[]>;
   recentScans: AttendanceLiveScanRow[];
 }
 

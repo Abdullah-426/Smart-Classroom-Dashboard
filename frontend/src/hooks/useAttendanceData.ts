@@ -43,6 +43,7 @@ export function useAttendanceData() {
     async (input?: {
       className?: string;
       courseName?: string;
+      subjectCode?: string;
       section?: string;
       lateAfterMinutes?: number;
       duplicateSuppressMs?: number;
@@ -59,11 +60,35 @@ export function useAttendanceData() {
     await load();
   }, [load]);
 
+  const addSubject = useCallback(
+    async (input: { name: string; code: string }) => {
+      await dashboardApi.addAttendanceSubject(input);
+      await load();
+    },
+    [load],
+  );
+
+  const updateSubject = useCallback(
+    async (input: { currentCode: string; name: string; code: string }) => {
+      await dashboardApi.updateAttendanceSubject(input);
+      await load();
+    },
+    [load],
+  );
+
+  const deleteSubject = useCallback(
+    async (code: string) => {
+      await dashboardApi.deleteAttendanceSubject(code);
+      await load();
+    },
+    [load],
+  );
+
   const presentStudents = useMemo(() => {
     if (!data) return [];
     return Array.isArray(data.students) ? data.students.filter((t) => t.state !== "absent") : [];
   }, [data]);
 
-  return { data, loading, error, reset, startSession, endSession, presentStudents };
+  return { data, loading, error, reset, startSession, endSession, addSubject, updateSubject, deleteSubject, presentStudents };
 }
 
