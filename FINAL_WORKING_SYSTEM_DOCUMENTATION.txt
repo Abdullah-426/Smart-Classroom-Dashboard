@@ -282,7 +282,7 @@ This node is the core state synchronizer for all HTTP APIs and dashboard widgets
 
 Storage ingest branch:
 - Function: "Prepare storage POST"
-- HTTP request: POST http://host.docker.internal:4050/ingest
+- HTTP request: POST http://127.0.0.1:4050/ingest
 
 What gets sent to /ingest:
 - telemetry sample + expanded device fields + AC fields + attendanceEvent
@@ -296,7 +296,7 @@ Downtime branch:
     - dead threshold ~7s
     - dead streak debounce to prevent flicker
   - stores flow.pipelineStableLive and flow.pipelineDeadPollStreak
-- HTTP request: POST http://host.docker.internal:4050/api/storage/downtime/tick
+- HTTP request: POST http://127.0.0.1:4050/api/storage/downtime/tick
 
 Effect:
 - storage bridge tracks total offline duration persistently.

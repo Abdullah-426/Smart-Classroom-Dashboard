@@ -1,7 +1,16 @@
 # Local persisted telemetry (storage-bridge)
 /data/
+/node_modules/
 
 # Secrets (e.g. Docker --env-file for Node-RED / Groq)
 .env
 groq.env
 *.local.env
+
+# Node-RED local runtime/user state
+/.node-red/
+/node-red-data/
+*.backup
+*.backup.*
+flows_*.json
+flows_*.cred

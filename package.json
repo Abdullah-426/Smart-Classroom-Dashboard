@@ -5,10 +5,16 @@
   "scripts": {
     "storage": "cross-env STORAGE_BRIDGE_HOST=0.0.0.0 node ./storage-bridge.mjs",
     "storage:loopback": "node ./storage-bridge.mjs",
-    "dev:all": "concurrently -n storage,vite -c cyan,magenta \"cross-env STORAGE_BRIDGE_HOST=0.0.0.0 node ./storage-bridge.mjs\" \"npm run dev --prefix ./frontend\""
+    "dev:all": "concurrently -n storage,vite -c cyan,magenta \"cross-env STORAGE_BRIDGE_HOST=0.0.0.0 node ./storage-bridge.mjs\" \"npm run dev --prefix ./frontend\"",
+    "nodered": "node-red -u ./node-red-data --settings ./node-red-data/settings.cjs",
+    "nodered:env": "dotenv -e .env -- node-red -u ./node-red-data --settings ./node-red-data/settings.cjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",
-    "cross-env": "^7.0.3"
+    "cross-env": "^7.0.3",
+    "dotenv-cli": "^11.0.0"
+  },
+  "dependencies": {
+    "node-red": "^4.1.8"
   }
 }

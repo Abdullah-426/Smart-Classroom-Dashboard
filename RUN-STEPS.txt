@@ -35,19 +35,17 @@ ONE-TIME SETUP (after git clone or on a new machine)
 
   4. Node-RED flows (once per environment, or when you intentionally refresh flows):
        • In the Node-RED editor: Menu → Import → select all_flows_edit.json → Deploy.
-       • If Node-RED runs inside Docker on Windows, the default HTTP nodes use:
-           POST http://host.docker.internal:4050/ingest
-           POST http://host.docker.internal:4050/api/storage/downtime/tick
-         If Node-RED runs on the host (no Docker), change BOTH URLs to http://127.0.0.1:4050/...
+       • Since Node-RED now runs on host via npm, keep BOTH storage URLs as:
+           POST http://127.0.0.1:4050/ingest
+           POST http://127.0.0.1:4050/api/storage/downtime/tick
        • Optional AI (Groq): set GROQ_API_KEY where Node-RED runs — see node-red.env.example
-         and docs/DOCKER-NODERED.md. Format must be GROQ_API_KEY=gsk_... with no spaces around =.
+         and .env/.env.example. Format must be GROQ_API_KEY=gsk_... with no spaces around =.
 
 --------------------------------------------------------------------------------
 EVERY SESSION — START IN THIS ORDER (after restart)
 --------------------------------------------------------------------------------
 
-  1. Start Docker Desktop (if you use Docker for Node-RED and/or your MQTT broker).
-     Wait until Docker reports it is fully running.
+  1. Ensure your MQTT broker is available (public broker or local broker service).
 
   2. Start your MQTT broker (if it is not already always-on).
      Wokwi and Node-RED must use the same broker host/port/topic scheme you configured.
@@ -60,7 +58,8 @@ EVERY SESSION — START IN THIS ORDER (after restart)
      Why before Node-RED: flows POST to the bridge; if 4050 is down, those calls fail until
      the bridge is up.
 
-  4. Start Node-RED (your usual Docker run / docker start / or local install).
+  4. Start Node-RED from project root:
+       npm run nodered:env
      Wait until the editor loads at http://127.0.0.1:1880 (or your mapped port).
      If flows were already deployed, click Deploy once if you changed anything.
 
@@ -144,7 +143,7 @@ ALTERNATIVE: STORAGE BRIDGE ONLY (no Vite in the same command)
 IF STORAGE OR DOWNTIME LOOKS STUCK AFTER CHANGING FLOWS
 --------------------------------------------------------------------------------
 
-  • Confirm the two POST URLs match your setup (host.docker.internal vs 127.0.0.1).
+  • Confirm the two POST URLs are set to http://127.0.0.1:4050/... in Node-RED HTTP request nodes.
   • Restart npm run dev:all (or the storage script) so port 4050 is listening.
   • Re-Deploy flows in Node-RED.
 
